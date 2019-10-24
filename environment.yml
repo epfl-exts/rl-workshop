@@ -1,0 +1,19 @@
+name: rl-workshop
+channels:
+  - conda-forge
+  - pytorch
+dependencies:
+- python=3.6
+- pytorch=1.3
+- torchvision=0.4
+- scikit-learn=0.21
+- jupyterlab=1.1
+- ipywidgets=7.4
+- numpy=1.17
+- pandas=0.25
+- matplotlib=3.0
+- seaborn=0.9.0
+- pip
+- nodejs
+- pip:
+  - gym==0.15.3
