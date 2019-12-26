@@ -1,33 +1,39 @@
 import numpy as np
-from enum import Enum
 
-class Tile(Enum):
-    EMPTY = 0
-    DRONE = 1
-    PACKET = 2
-    DROPZONE = 3
-    DRONEWPAQUET = 4
+class Dropzone():
+    def __init__(self, name):
+        self.name = name
+
+class Packet():
+    def __init__(self, name):
+        self.name = name
+
+class Drone():
+    def __init__(self, name):
+        self.name = name
         
 class Arena():
     drone_density = 0.05
     
-    def __init__(self, drone_names):
+    def __init__(self, drones_names):
         # Compute arena size
         arena_side_size = int(np.ceil(np.sqrt(
-            len(drone_names) / Arena.drone_density)))
+            len(drones_names) / Arena.drone_density)))
         self.shape = (arena_side_size, arena_side_size)
         
         # Create arena grid
-        self.grid = np.full(self.shape, fill_value=Tile.EMPTY)
+        self.grid = np.full(self.shape, fill_value=None, dtype=np.object)
         
         # Spawn objects
-        n = len(drone_names)
-        self.spawn(n*[Tile.DRONE] + 2*n*[Tile.PACKET])
+        drones = [Drone(name) for name in drones_names]
+        packets = [Packet(i) for i in range(len(drones_names))]
+        dronzones = [Dropzone(i) for i in range(len(drones_names))]
+        self.spawn(drones+packets+dronzones)
     
     def spawn(self, objects):
         # Pick empty tiles
         idxs = np.arange(self.grid.size).reshape(self.grid.shape)
-        available_idxs = idxs[self.grid == Tile.EMPTY]
+        available_idxs = idxs[self.grid == None]
         selected_idxs = np.random.choice(
             available_idxs, size=len(objects), replace=False)
         
@@ -37,13 +43,13 @@ class Arena():
     def __str__(self):
         # Convert grid tiles to text
         def tile_to_char(tile):
-            if tile is Tile.EMPTY:
+            if tile is None:
                 return ' '
-            if tile is Tile.DRONE:
+            if isinstance(tile, Drone):
                 return '§'
-            if tile is Tile.PACKET:
+            if isinstance(tile, Packet):
                 return 'x'
-            if tile is Tile.DROPZONE:
+            if isinstance(tile, Dropzone):
                 return 'o'
             return '?'
         grid_char = np.vectorize(tile_to_char)(self.grid)
