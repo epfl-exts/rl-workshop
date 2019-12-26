@@ -20,33 +20,19 @@ class Arena():
         # Create arena grid
         self.grid = np.full(self.shape, fill_value=Tile.EMPTY)
         
-        # Span drones
-        np.put(
-            self.grid, 
-            self.pick_freetiles(len(drone_names), flat=True),
-            Tile.DRONE)
-        
-        # Span packets
-        np.put(
-            self.grid,
-            self.pick_freetiles(len(drone_names) *2, flat=True),
-            Tile.PACKET
-        )
+        # Spawn objects
+        n = len(drone_names)
+        self.spawn(n*[Tile.DRONE] + 2*n*[Tile.PACKET])
     
-    def pick_freetiles(self, n, flat=False):
+    def spawn(self, objects):
         # Pick empty tiles
         idxs = np.arange(self.grid.size).reshape(self.grid.shape)
         available_idxs = idxs[self.grid == Tile.EMPTY]
-        selected_idxs_flat = np.random.choice(
-            available_idxs, size=n, replace=False)
+        selected_idxs = np.random.choice(
+            available_idxs, size=len(objects), replace=False)
         
-        # Return (non) flat indices
-        if flat:
-            return selected_idxs_flat
-        else:
-            return list(zip(*np.unravel_index(
-                selected_idxs_flat, shape=self.grid.shape
-            )))
+        # Spawn objects
+        np.put(self.grid, selected_idxs, objects)
     
     def __str__(self):
         # Convert grid tiles to text
