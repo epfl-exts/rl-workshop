@@ -165,7 +165,29 @@ class DeliveryDrones():
         self.ground.spawn(ground_respawns)
         self._pick_packets_after_respawn(self.air.spawn(air_respawns))
         
-        return rewards
+        # Return new states, rewards, done and other infos
+        drones, _ = self.air.get_objects(Drone)
+        new_states = {drone.name: self._get_state(drone) for drone in drones if drone.name in actions}
+        return new_states, rewards, False, {}
+    
+    def _get_state(self, drone):
+        # TODO: Drones layers
+        my_drone_layer = np.zeros(shape=self.shape)
+        other_drones_layer = np.zeros(shape=self.shape)
+        
+        # TODO: Packets layers
+        my_packet_layer = np.zeros(shape=self.shape)
+        other_packets_layer = np.zeros(shape=self.shape)
+        
+        # TODO: Dropzones layers
+        my_dropzone_layer = np.zeros(shape=self.shape)
+        other_dropzones_layer = np.zeros(shape=self.shape)
+        
+        return np.stack([
+            my_drone_layer, other_drones_layer,
+            my_packet_layer, other_packets_layer,
+            my_dropzone_layer, other_dropzones_layer
+        ], axis=-1)
         
     def _pick_packets_after_respawn(self, positions):
         for x, y in zip(*positions):
