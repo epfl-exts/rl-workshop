@@ -113,6 +113,7 @@ class DeliveryDrones():
                 air_respawns.append(drone)
                 
                 # Packet is destroyed and has to respawn
+                # TODO: Should we also respawn associated dropzone?
                 if drone.packet is not None:
                     ground_respawns.append(drone.packet)
                     drone.packet = None
@@ -126,6 +127,7 @@ class DeliveryDrones():
                 air_respawns.extend(drones)
                 
                 # Packets are destroyed and have to respawn
+                # TODO: Should we also respawn associated dropzones?
                 ground_respawns.extend([drone.packet for drone in drones if drone.packet is not None])
                 for drone in drones:
                     drone.packet = None
