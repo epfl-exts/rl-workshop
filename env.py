@@ -1,6 +1,7 @@
 import numpy as np
 from enum import Enum
 from collections import defaultdict
+from gym.spaces.discrete import Discrete
 
 class Action(Enum):
     LEFT = 0
@@ -57,22 +58,76 @@ class Grid():
 class DeliveryDrones():
     drone_density = 0.05
     
-    def __init__(self, drones_names):
+    def __init__(self, n_drones):
+        # Define size of the environment
+        self.n_drones = n_drones
+        self.n_packets = self.n_drones
+        self.n_dropzones = self.n_packets
+        
+        self.side_size = int(np.ceil(np.sqrt(self.n_drones/self.drone_density)))
+        self.shape = (self.side_size, self.side_size)
+        
+        # Define action space
+        self.action_space = Discrete(len(Action))
+        
+        # Define observation space
+        self.n_cells = self.shape[0] * self.shape[1]
+        self.n_states = sum([
+            # One position per drone
+            self.n_drones * self.n_cells,
+            
+            # One position per packet
+            self.n_packets * self.n_cells,
+            
+            # One position per dropzone
+            self.n_dropzones * self.n_cells
+        ])
+        self.observation_space = Discrete(self.n_states)
+        
+    def reset(self, drones_names):
+        # Check we get the expected number of names
+        assert len(drones_names) == self.n_drones
+        self.drones_names = drones_names
+        
         # Create grids
-        sides_size = int(np.ceil(np.sqrt(
-            len(drones_names) / self.drone_density)))
-        self.shape = (sides_size, sides_size)
         self.air = Grid(shape=self.shape)
         self.ground = Grid(shape=self.shape)
         
         # Spawn objects
-        self.ground.spawn([Packet(i) for i in range(len(drones_names))])
-        self.ground.spawn([Dropzone(i) for i in range(len(drones_names))])
+        self.ground.spawn([Packet(i) for i in range(self.n_packets)])
+        self.ground.spawn([Dropzone(i) for i in range(self.n_dropzones)])
         self._pick_packets_after_respawn(
-            self.air.spawn([Drone(name) for name in drones_names]))
+            self.air.spawn([Drone(name) for name in self.drones_names]))
+        
+        # Return current states
+        return self._get_states()
+    
+    def _get_states(self):
+        drones, _ = self.air.get_objects(Drone)
+        return {drone.name: self._get_state(drone) for drone in drones}
+    
+    def _get_state(self, drone):
+        # TODO: Drones layers
+        my_drone_layer = np.zeros(shape=self.shape)
+        other_drones_layer = np.zeros(shape=self.shape)
+        
+        # TODO: Packets layers
+        my_packet_layer = np.zeros(shape=self.shape)
+        other_packets_layer = np.zeros(shape=self.shape)
+        
+        # TODO: Dropzones layers
+        my_dropzone_layer = np.zeros(shape=self.shape)
+        other_dropzones_layer = np.zeros(shape=self.shape)
+        
+        return np.stack([
+            my_drone_layer, other_drones_layer,
+            my_packet_layer, other_packets_layer,
+            my_dropzone_layer, other_dropzones_layer
+        ], axis=-1)
         
     def sample(self):
-        return np.random.choice(Action).value
+        # TODO: really necessary? Probably already implemented in super class
+        return self.action_space.sample()
         
     def step(self, actions):
         # Check how each drone plans to move
@@ -168,28 +223,8 @@ class DeliveryDrones():
         self._pick_packets_after_respawn(self.air.spawn(air_respawns))
         
         # Return new states, rewards, done and other infos
-        drones, _ = self.air.get_objects(Drone)
-        new_states = {drone.name: self._get_state(drone) for drone in drones if drone.name in actions}
+        new_states = self._get_states()
         return new_states, rewards, False, {}
-    
-    def _get_state(self, drone):
-        # TODO: Drones layers
-        my_drone_layer = np.zeros(shape=self.shape)
-        other_drones_layer = np.zeros(shape=self.shape)
-        
-        # TODO: Packets layers
-        my_packet_layer = np.zeros(shape=self.shape)
-        other_packets_layer = np.zeros(shape=self.shape)
-        
-        # TODO: Dropzones layers
-        my_dropzone_layer = np.zeros(shape=self.shape)
-        other_dropzones_layer = np.zeros(shape=self.shape)
-        
-        return np.stack([
-            my_drone_layer, other_drones_layer,
-            my_packet_layer, other_packets_layer,
-            my_dropzone_layer, other_dropzones_layer
-        ], axis=-1)
         
     def _pick_packets_after_respawn(self, positions):
         for x, y in zip(*positions):
