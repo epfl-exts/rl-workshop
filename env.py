@@ -15,14 +15,14 @@ class Dropzone():
         self.name = name
         
     def __repr__(self):
-        return self.name
+        return 'D{}'.format(self.name)
 
 class Packet():
     def __init__(self, name):
         self.name = name
         
     def __repr__(self):
-        return self.name
+        return 'P{}'.format(self.name)
 
 class Drone():
     def __init__(self, name):
@@ -30,7 +30,7 @@ class Drone():
         self.packet = None
         
     def __repr__(self):
-        return self.name
+        return str(self.name)
         
 class Grid():
     def __init__(self, shape):
@@ -308,7 +308,7 @@ class EngineeredQTable():
             to_abs = lambda rel_pos: (position[0] + rel_pos[0], position[1] + rel_pos[1])
             return list(map(to_abs, rel_positions))
         
-        # Encode if there are walls below/above and left/right
+        # Encode wall information
         is_wall_below = not self.env.is_inside(position=(position[0]+1, position[1]))
         is_wall_above = not self.env.is_inside(position=(position[0]-1, position[1]))
         state.append((2 if is_wall_above else (1 if is_wall_below else 0), 3))
@@ -317,7 +317,8 @@ class EngineeredQTable():
         is_wall_left = not self.env.is_inside(position=(position[0], position[1]-1))
         state.append((2 if is_wall_right else (1 if is_wall_left else 0), 3))
         
-        # Encode if there are drones below/above/left/right
+        # Encode if moving below/above/left/right is "safe"
+        # TODO: handle "STAY move"
         above_positions = to_absolute([(-1, -1), (-1, 0), (-1, 1), (-2, 0)])
         below_positions = to_absolute([(1, -1), (1, 0), (1, 1), (2, 0)])
         right_positions = to_absolute([(-1, 1), (0, 1), (1, 1), (0, 2)])
@@ -327,9 +328,50 @@ class EngineeredQTable():
         state.append((int(self.env.air.get_objects(Drone, right_positions)[0].size > 0), 2))
         state.append((int(self.env.air.get_objects(Drone, left_positions)[0].size > 0), 2))
         
-        # TODO: Packets
-        # TODO: Dropzones
-        # TODO: encode state using encode_state()
+        # Encode delivery (Packets + Dropzone) information
+        # (0, 1, 2, 3): direction to go to reach nearest packet when drone doesn't have one
+        # (4, 5, 6, 7): direction to go to reach dropzone when it has (TODO)
+        packets, packets_positions = self.env.ground.get_objects(Packet)
+        l1_distances = np.abs(packets_positions[0] - position[0]) + np.abs(packets_positions[1] - position[1])
+        nearest_packet_idx = l1_distances.argmin()
+        direction_to_go = np.argmax([
+            # How far the packet is .. the drone
+            packets_positions[0][nearest_packet_idx] - position[0], # .. below ..
+            position[0] - packets_positions[0][nearest_packet_idx], # .. above ..
+            packets_positions[1][nearest_packet_idx] - position[1], # .. on the right of ..
+            position[1] - packets_positions[1][nearest_packet_idx], # .. on the left of ..
+        ])
+        state.append((direction_to_go, 8))
         
-        return state    
+        # TODO: encode state using encode_state()
+        self.state_base = [n for _, n in state]
+        self.n_states = np.prod(self.state_base)
+        state_tuple = tuple([s for s, _ in state])
+        
+        return state
+    
+    # A set of static functions to encode/decode states between tuples and 0-indexed integers
+    # This is useful for methods based on Q-tables that need states to be represented as a single integer
+    def encode_state(n_tuple, base):
+        """Base and n_tuple are tuples of positive integers"""
+        n = 0
+        for x, factor in zip(n_tuple, get_base_factors(base)):
+            n += factor*x
+        return n
+
+    def decode_state(n, base):
+        """Base is a tuple of positive integer"""
+        remainder = n
+        n_tuple = []
+        for factor in get_base_factors(base):
+            n_tuple.append(remainder // factor)
+            remainder %= factor
+        return tuple(n_tuple)
+
+    def get_base_factors(base):
+        """Base is a tuple of positive integer"""
+        base_factors = []
+        for base_i in range(len(base)):
+            base_factors.append(int(np.prod(base[base_i+1:])))
+        return base_factors
             
