@@ -157,6 +157,31 @@ def test_agent(env, agent, nb_evaluations=1, seed=0, action_names=None, max_nb_t
 
     return episodes_log
 
+# A set of functions to encode/decode states between tuples and 0-indexed integers
+# This is useful for methods based on Q-tables that need states to be represented as a single integer
+def encode_state(n_tuple, base):
+    '''Base and tuple should contain only positive numbers'''
+    n = 0
+    for x, factor in zip(n_tuple, get_base_factors(base)):
+        n += factor*x
+    return n
+
+def decode_state(n, base):
+    '''Base should contain only positive numbers'''
+    remainder = n
+    n_tuple = []
+    for factor in get_base_factors(base):
+        n_tuple.append(remainder // factor)
+        remainder %= factor
+    return tuple(n_tuple)
+
+def get_base_factors(base):
+    '''Base should contain only positive numbers'''
+    base_factors = []
+    for base_i in range(len(base)):
+        base_factors.append(int(np.prod(base[base_i+1:])))
+    return base_factors
+
 # Base agent
 class BaseAgent():
     def __init__(self, state_size, action_size):

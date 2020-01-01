@@ -43,9 +43,16 @@ class Grid():
     def __setitem__(self, key, value):
         self.grid[key] = value
     
-    def get_objects(self, object_type):
-        'Return objects from that type with their position'
+    def get_objects(self, object_type, positions=None):
+        'Filter objects matching criteria'
         objects_mask = np.vectorize(lambda tile: isinstance(tile, object_type))(self.grid)
+
+        if positions is not None:
+            position_mask = np.full(shape=self.shape, fill_value=False)
+            for x, y in filter(self.is_inside, positions):
+                position_mask[x, y] = True
+            objects_mask = np.logical_and(objects_mask, position_mask)
+        
         return self[objects_mask], np.nonzero(objects_mask)
     
     def spawn(self, objects):
@@ -54,6 +61,13 @@ class Grid():
         idxs = np.unravel_index(flat_idxs, self.shape)
         self.grid[idxs] = objects
         return idxs
+    
+    def is_inside(self, position):
+        try:
+            np.ravel_multi_index(multi_index=position, dims=self.shape, mode='raise')
+            return True
+        except ValueError:
+            return False
         
 class DeliveryDrones():
     drone_density = 0.05
@@ -154,21 +168,17 @@ class DeliveryDrones():
                 new_position = position
             
             # Check where that new position is
-            try:
-                # Raises an exception if the drone plans to fly outside the grid
-                np.ravel_multi_index(new_position, self.shape)
-                
+            if(self.air.is_inside(new_position)):
                 # Drone plans to move to a valid place, save it
                 new_positions[new_position].append(drone)
                   
             # Drone plans to move outside the grid!
-            except ValueError:
+            else:
                 # Drone gets a negative reward and has to respawn
                 rewards[drone] = -1
                 air_respawns.append(drone)
                 
                 # Packet is destroyed and has to respawn
-                # TODO: Should we also respawn associated dropzone?
                 if drone.packet is not None:
                     ground_respawns.append(drone.packet)
                     drone.packet = None
@@ -231,6 +241,9 @@ class DeliveryDrones():
             if isinstance(self.ground[x, y], Packet):
                 self.air[x, y].packet = self.ground[x, y]
                 self.ground[x, y] = None
+                
+    def is_inside(self, position):
+        return self.air.is_inside(position)
         
     def render(self):
         print(self.__str__())
@@ -274,3 +287,49 @@ class DeliveryDrones():
             lines.append(row_sep)
             
         return '\n'.join(lines)
+    
+# Objects to produce observation states
+class StateAdaptator():
+    def get_state(self, drone, env):
+        raise NotImplementedError()
+        
+# State adaptator for methods based on Q-tables
+class EngineeredQTable():
+    def __init__(self, env):
+        self.env = env
+        
+    def get_state(self, drone, position):
+        # Global state is a list of "sub states" that encode "sub infos"
+        # Information about ex. walls, other drones, dropzones, packets
+        state = list()
+        
+        # Helper function to convert relative positions to absolute ones
+        def to_absolute(rel_positions):
+            to_abs = lambda rel_pos: (position[0] + rel_pos[0], position[1] + rel_pos[1])
+            return list(map(to_abs, rel_positions))
+        
+        # Encode if there are walls below/above and left/right
+        is_wall_below = not self.env.is_inside(position=(position[0]+1, position[1]))
+        is_wall_above = not self.env.is_inside(position=(position[0]-1, position[1]))
+        state.append((2 if is_wall_above else (1 if is_wall_below else 0), 3))
+        
+        is_wall_right = not self.env.is_inside(position=(position[0], position[1]+1))
+        is_wall_left = not self.env.is_inside(position=(position[0], position[1]-1))
+        state.append((2 if is_wall_right else (1 if is_wall_left else 0), 3))
+        
+        # Encode if there are drones below/above/left/right
+        above_positions = to_absolute([(-1, -1), (-1, 0), (-1, 1), (-2, 0)])
+        below_positions = to_absolute([(1, -1), (1, 0), (1, 1), (2, 0)])
+        right_positions = to_absolute([(-1, 1), (0, 1), (1, 1), (0, 2)])
+        left_positions = to_absolute([(-1, -1), (0, -1), (1, -1), (0, -2)])
+        state.append((int(self.env.air.get_objects(Drone, above_positions)[0].size > 0), 2))
+        state.append((int(self.env.air.get_objects(Drone, below_positions)[0].size > 0), 2))
+        state.append((int(self.env.air.get_objects(Drone, right_positions)[0].size > 0), 2))
+        state.append((int(self.env.air.get_objects(Drone, left_positions)[0].size > 0), 2))
+        
+        # TODO: Packets
+        # TODO: Dropzones
+        # TODO: encode state using encode_state()
+        
+        return state    
+            
