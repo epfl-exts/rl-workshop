@@ -317,45 +317,62 @@ class EngineeredQTable():
         is_wall_left = not self.env.is_inside(position=(position[0], position[1]-1))
         state.append((2 if is_wall_right else (1 if is_wall_left else 0), 3))
         
-        # Encode if moving below/above/left/right is "safe"
-        # TODO: handle "STAY move"
+        # Encode if moving below/above/left/right or "stay" is "safe"
         above_positions = to_absolute([(-1, -1), (-1, 0), (-1, 1), (-2, 0)])
         below_positions = to_absolute([(1, -1), (1, 0), (1, 1), (2, 0)])
         right_positions = to_absolute([(-1, 1), (0, 1), (1, 1), (0, 2)])
         left_positions = to_absolute([(-1, -1), (0, -1), (1, -1), (0, -2)])
+        stay_positions = to_absolute([(-1, 0), (0, -1), (1, 0), (0, 1)])
         state.append((int(self.env.air.get_objects(Drone, above_positions)[0].size > 0), 2))
         state.append((int(self.env.air.get_objects(Drone, below_positions)[0].size > 0), 2))
         state.append((int(self.env.air.get_objects(Drone, right_positions)[0].size > 0), 2))
         state.append((int(self.env.air.get_objects(Drone, left_positions)[0].size > 0), 2))
+        state.append((int(self.env.air.get_objects(Drone, stay_positions)[0].size > 0), 2))
         
         # Encode delivery (Packets + Dropzone) information
         # (0, 1, 2, 3): direction to go to reach nearest packet when drone doesn't have one
-        # (4, 5, 6, 7): direction to go to reach dropzone when it has (TODO)
-        packets, packets_positions = self.env.ground.get_objects(Packet)
-        l1_distances = np.abs(packets_positions[0] - position[0]) + np.abs(packets_positions[1] - position[1])
-        nearest_packet_idx = l1_distances.argmin()
-        direction_to_go = np.argmax([
-            # How far the packet is .. the drone
-            packets_positions[0][nearest_packet_idx] - position[0], # .. below ..
-            position[0] - packets_positions[0][nearest_packet_idx], # .. above ..
-            packets_positions[1][nearest_packet_idx] - position[1], # .. on the right of ..
-            position[1] - packets_positions[1][nearest_packet_idx], # .. on the left of ..
-        ])
+        # (4, 5, 6, 7): direction to go to reach dropzone when it has
+        if drone.packet is None:
+            packets, packets_positions = self.env.ground.get_objects(Packet)
+            l1_distances = np.abs(packets_positions[0] - position[0]) + np.abs(packets_positions[1] - position[1])
+            nearest_packet_idx = l1_distances.argmin()
+            direction_to_go = np.argmax([
+                # How far the packet is .. the drone
+                packets_positions[0][nearest_packet_idx] - position[0], # .. below ..
+                position[0] - packets_positions[0][nearest_packet_idx], # .. above ..
+                packets_positions[1][nearest_packet_idx] - position[1], # .. on the right of ..
+                position[1] - packets_positions[1][nearest_packet_idx], # .. on the left of ..
+            ])
+        else:
+            dropzones, dropzones_positions = self.env.ground.get_objects(Dropzone)
+            dropzone, (dropzone_x, dropzone_y) = [
+                (d, p) for d, p in zip(dropzones, zip(*dropzones_positions))
+                if d.name == drone.packet.name
+            ][0]
+            direction_to_go = 4 + np.argmax([
+                # How far the dropzone is .. the drone
+                dropzone_x - position[0], # .. below ..
+                position[0] - dropzone_x, # .. above ..
+                dropzone_y - position[1], # .. on the right of ..
+                position[1] - dropzone_y, # .. on the left of ..
+            ])
+            
         state.append((direction_to_go, 8))
         
-        # TODO: encode state using encode_state()
+        # Return encoded state
         self.state_base = [n for _, n in state]
         self.n_states = np.prod(self.state_base)
         state_tuple = tuple([s for s, _ in state])
+        encoded_state = EngineeredQTable.encode_state(state_tuple, self.state_base)
         
-        return state
+        return encoded_state
     
     # A set of static functions to encode/decode states between tuples and 0-indexed integers
     # This is useful for methods based on Q-tables that need states to be represented as a single integer
     def encode_state(n_tuple, base):
         """Base and n_tuple are tuples of positive integers"""
         n = 0
-        for x, factor in zip(n_tuple, get_base_factors(base)):
+        for x, factor in zip(n_tuple, EngineeredQTable.get_base_factors(base)):
             n += factor*x
         return n
 
@@ -363,7 +380,7 @@ class EngineeredQTable():
         """Base is a tuple of positive integer"""
         remainder = n
         n_tuple = []
-        for factor in get_base_factors(base):
+        for factor in EngineeredQTable.get_base_factors(base):
             n_tuple.append(remainder // factor)
             remainder %= factor
         return tuple(n_tuple)
