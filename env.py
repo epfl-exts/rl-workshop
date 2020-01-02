@@ -78,9 +78,10 @@ class Grid():
 class DeliveryDrones():
     drone_density = 0.05
     
-    def __init__(self, n_drones):
+    def __init__(self, drones_names, state_adaptator_class):
         # Define size of the environment
-        self.n_drones = n_drones
+        self.drones_names = drones_names
+        self.n_drones = len(self.drones_names)
         self.n_packets = self.n_drones
         self.n_dropzones = self.n_packets
         
@@ -91,11 +92,11 @@ class DeliveryDrones():
         # Define action space
         self.action_space = Discrete(len(Action))
         
-    def reset(self, drones_names, state_adaptor):
-        # Check we get the expected number of names
-        assert len(drones_names) == self.n_drones
-        self.drones_names = drones_names
+        # Create state adaptator
+        self.state_adaptator = state_adaptator_class(self)
+        self.observation_space = self.state_adaptator.observation_space
         
+    def reset(self):
         # Create grids
         self.air = Grid(shape=self.shape)
         self.ground = Grid(shape=self.shape)
@@ -107,24 +108,21 @@ class DeliveryDrones():
             self.air.spawn([Drone(name) for name in self.drones_names]))
         
         # Return current states
-        return self._get_states(state_adaptor)
+        return self._get_states()
     
-    def _get_states(self, state_adaptor):
+    def _get_states(self):
         return {
-            drone.name: state_adaptor.get_state(drone, position)
+            drone.name: self.state_adaptator.get_state(drone, position)
             for drone, position in self.air.get_objects(Drone, as_tuple=True)
         }
         
-    def sample(self):
-        # TODO: really necessary? Probably already implemented in super class
-        return self.action_space.sample()
-        
-    def step(self, actions, state_adaptor):
+    def step(self, actions):
         # Check how each drone plans to move
         new_positions = defaultdict(list)
         air_respawns = []
         ground_respawns = []
-        rewards = {name: 0 for name, _ in actions.items()}
+        rewards = {name: 0 for name in actions.keys()}
+        dones = {name: False for name in actions.keys()}
         drones, drones_idxs = self.air.get_objects(Drone)
         for drone, position in zip(drones, zip(*drones_idxs)):
             # Drones actually teleports, temporarily remove them from the air
@@ -168,7 +166,6 @@ class DeliveryDrones():
                 air_respawns.extend(drones)
                 
                 # Packets are destroyed and have to respawn
-                # TODO: Should we also respawn associated dropzones?
                 ground_respawns.extend([drone.packet for drone in drones if drone.packet is not None])
                 for drone in drones:
                     drone.packet = None
@@ -190,6 +187,7 @@ class DeliveryDrones():
                 else:
                     drone.packet = self.ground[position]
                     self.ground[position] = None
+                    rewards[drone.name] = 1
                     
             # A drop zone?
             elif isinstance(self.ground[position], Dropzone):
@@ -207,11 +205,14 @@ class DeliveryDrones():
         # Respawn objects
         self.ground.spawn(ground_respawns)
         self._pick_packets_after_respawn(self.air.spawn(air_respawns))
+        for drone in air_respawns:
+            dones[drone.name] = True
         
         # Return new states, rewards, done and other infos
         # TODO: Add reward adaptator
-        new_states = self._get_states(state_adaptor)
-        return new_states, rewards, False, {}
+        dones = {name: int(reward != 0) for name, reward in rewards.items()}
+        new_states = self._get_states()
+        return new_states, rewards, dones, {}
         
     def _pick_packets_after_respawn(self, positions):
         for x, y in zip(*positions):
@@ -264,6 +265,12 @@ class DeliveryDrones():
             lines.append(row_sep)
             
         return '\n'.join(lines)
+    
+    # TODO: really necessary? Probably already implemented in super class
+    def sample(self):
+        return self.action_space.sample()
+    def seed(self, n):
+        pass
     
 # Objects to produce observation states
 class StateAdaptator():

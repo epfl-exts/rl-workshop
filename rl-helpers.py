@@ -1,3 +1,4 @@
+from collections import defaultdict, Counter
 import matplotlib.pyplot as plt
 import seaborn as sns
 from tqdm import tqdm
@@ -16,9 +17,9 @@ def set_seed(env, seed):
     random.seed(seed) # seed for Python random library
 
 # Print Q-table as a DataFrame
-def format_qtable(q_table, action_names, fmt='{}'):
+def format_qtable(q_table, action_names={}, fmt='{}'):
     df = pd.DataFrame(q_table)
-    df.columns = [action_names[i] for i in range(q_table.shape[1])]
+    df.columns = [(action_names[i] if i in action_names else i) for i in range(q_table.shape[1])]
     df.index.name = 'state'
     return df.applymap(fmt.format)
     
@@ -69,40 +70,40 @@ def print_results(agent_logs):
         np.mean(agent_logs['lengths']), np.std(agent_logs['lengths'])))
 
 # A Trainer class
-class Trainer():
-    def __init__(self, env, agent, seed):
-        self.env, self.agent, self.seed = env, agent, seed # Save parameters
-        self.episode_returns = [] # List to log returns
-        self.reset() # Make sure to initialize everything
+class MultiAgentTrainer():
+    def __init__(self, env, agents, seed):
+        # Save parameters
+        self.env, self.agents, self.seed = env, agents, seed
+        
+        # Create log of rewards and reset agents
+        self.all_rewards = {name: [] for name in self.agents.keys()}
+        self.reset()
         
     def reset(self):
-        set_seed(self.env, self.seed) # Set seed for reproducibility
-        self.agent.reset() # Reset agent
-        self.episode_returns.clear() # Clear log of returns
+        # Set seed for reproducibility
+        set_seed(self.env, self.seed)
+        
+        # Reset agents and clear log of rewards
+        for name, agent in self.agents.items():
+            agent.reset()
+            self.all_rewards[name].clear()
 
-    def train(self, nb_episodes):
-        for i in range(nb_episodes):
-            state = self.env.reset() # Reset env. and get initial observation
-            done, episode_return = False, 0.0 # Initialization
+    def train(self, n_steps):
+        # Reset env. and get initial observations
+        states = self.env.reset()
+        
+        for i in range(n_steps):
+            # Select actions based on current states
+            actions = {name: agent.act(states[name]) for name, agent in self.agents.items()}
 
-            while not done:
-                # Select an action based on current state
-                action = self.agent.act(state)
+            # Perform the selected action
+            next_states, rewards, dones, _ = self.env.step(actions)
 
-                # Perform the selected action
-                next_state, reward, done, _ = self.env.step(action)
-
-                # Learn from that experience
-                self.agent.learn(state, action, reward, next_state, done)
-
-                state = next_state
-                episode_return += reward
-
-            # The episode ended: save its return    
-            self.episode_returns.append(episode_return)
-
-        # All episodes are done: return the list of returns
-        return self.episode_returns
+            # Learn from experience
+            for name, agent in self.agents.items():
+                agent.learn(states[name], actions[name], rewards[name], next_states[name], dones[name])
+                self.all_rewards[name].append(rewards[name])
+                states = next_states
     
 # Function to test agents
 def test_agent(env, agent, nb_evaluations=1, seed=0, action_names=None, max_nb_timesteps=None, verbose=False, render=False):
@@ -217,3 +218,18 @@ class QLearningAgent(BasicQLearningAgent):
         
         # Update Q-table using the TD target and learning rate
         self.q_table[state, action] = (1 - self.alpha) * self.q_table[state, action] + self.alpha * td_target
+        
+# Q-learning agent with epsilon greedy strategy
+class EpsilonGreedyQLearningAgent(QLearningAgent):
+    def __init__(self, state_size, action_size, gamma, alpha, epsilon):
+        # Add an "exploration rate" parameter
+        self.epsilon = epsilon
+        
+        # Initialize Q-table
+        super().__init__(state_size, action_size, gamma, alpha)
+
+    def act(self, state):
+        if np.random.rand() < self.epsilon:
+            return np.random.choice(self.action_size) # Random action
+        else:
+            return np.argmax(self.q_table[state]) # Greedy action
