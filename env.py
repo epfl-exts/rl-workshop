@@ -285,13 +285,13 @@ class EngineeredQTable():
         # Global state is a list of "sub states" that encode "sub infos"
         # Information about ex. walls, other drones, dropzones, packets
         self.state_base = (
-            #3, # Horizontal wall
-            #3, # Verticall wall
-            #2, # Is it "safe" moving left?
-            #2, # Is it "safe" moving below?
-            #2, # Is it "safe" moving right?
-            #2, # Is it "safe" moving above?
-            #2, # Is it "safe" staying at the same position?
+            3, # Horizontal wall
+            3, # Verticall wall
+            2, # Is it "safe" moving left?
+            2, # Is it "safe" moving below?
+            2, # Is it "safe" moving right?
+            2, # Is it "safe" moving above?
+            2, # Is it "safe" staying at the same position?
             8, # Delivery (packet + dropzone) information
         )
         self.n_states = np.prod(self.state_base)
@@ -308,7 +308,6 @@ class EngineeredQTable():
             to_abs = lambda rel_pos: (position[0] + rel_pos[0], position[1] + rel_pos[1])
             return list(map(to_abs, rel_positions))
         
-        """
         # Encode wall information
         is_wall_below = not self.env.is_inside(position=(position[0]+1, position[1]))
         is_wall_above = not self.env.is_inside(position=(position[0]-1, position[1]))
@@ -319,6 +318,7 @@ class EngineeredQTable():
         state.append(2 if is_wall_right else (1 if is_wall_left else 0))
         
         # Encode if moving below/above/left/right or "stay" is "safe"
+        # TODO: merge this with wall information
         left_positions = to_absolute([(-1, -1), (0, -1), (1, -1), (0, -2)])
         below_positions = to_absolute([(1, -1), (1, 0), (1, 1), (2, 0)])
         right_positions = to_absolute([(-1, 1), (0, 1), (1, 1), (0, 2)])
@@ -329,7 +329,6 @@ class EngineeredQTable():
         state.append(int(self.env.air.get_objects(Drone, right_positions)[0].size > 0))
         state.append(int(self.env.air.get_objects(Drone, above_positions)[0].size > 0))
         state.append(int(self.env.air.get_objects(Drone, stay_positions)[0].size > 0))
-        """
         
         # Encode delivery (Packets + Dropzone) information
         # (0, 1, 2, 3): direction to go to reach nearest packet when drone doesn't have one

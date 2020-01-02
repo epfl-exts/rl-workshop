@@ -103,7 +103,7 @@ class MultiAgentTrainer():
             for name, agent in self.agents.items():
                 agent.learn(states[name], actions[name], rewards[name], next_states[name], dones[name])
                 self.all_rewards[name].append(rewards[name])
-                states = next_states
+            states = next_states
     
 # Function to test agents
 def test_agent(env, agent, nb_evaluations=1, seed=0, action_names=None, max_nb_timesteps=None, verbose=False, render=False):
