@@ -43,7 +43,7 @@ class Grid():
     def __setitem__(self, key, value):
         self.grid[key] = value
     
-    def get_objects(self, object_type, positions=None, as_tuple=False):
+    def get_objects(self, object_type, positions=None, zip_results=False):
         'Filter objects matching criteria'
         objects_mask = np.vectorize(lambda tile: isinstance(tile, object_type))(self.grid)
 
@@ -53,7 +53,7 @@ class Grid():
                 position_mask[x, y] = True
             objects_mask = np.logical_and(objects_mask, position_mask)
         
-        if as_tuple:
+        if zip_results:
             # Make things much easier in for loops
             # Example: .. for obj, pos in get_objects(..)
             return zip(self[objects_mask], zip(*np.nonzero(objects_mask)))
@@ -112,8 +112,8 @@ class DeliveryDrones():
     
     def _get_states(self):
         return {
-            drone.name: self.state_adaptator.get_state(drone, position)
-            for drone, position in self.air.get_objects(Drone, as_tuple=True)
+            drone.name: self.state_adaptator.get_state(drone, *position)
+            for drone, position in self.air.get_objects(Drone, zip_results=True)
         }
         
     def step(self, actions):
@@ -285,29 +285,30 @@ class EngineeredQTable():
         # Global state is a list of "sub states" that encode "sub infos"
         # Information about ex. walls, other drones, dropzones, packets
         self.state_base = (
-            3, # Horizontal wall
-            3, # Verticall wall
-            2, # Is it "safe" moving left?
-            2, # Is it "safe" moving below?
-            2, # Is it "safe" moving right?
-            2, # Is it "safe" moving above?
-            2, # Is it "safe" staying at the same position?
-            8, # Delivery (packet + dropzone) information
+            # 3, # Horizontal wall
+            # 3, # Verticall wall
+            # 2, # Is it "safe" moving left?
+            # 2, # Is it "safe" moving below?
+            # 2, # Is it "safe" moving right?
+            # 2, # Is it "safe" moving above?
+            # 2, # Is it "safe" staying at the same position?
+            4, # Target direction
         )
         self.n_states = np.prod(self.state_base)
         
         # Create gym observation space
         self.observation_space = Discrete(self.n_states)
         
-    def get_state(self, drone, position):
+    def get_state(self, drone, drone_y, drone_x):
         # State is a list of "sub states"
         state = list()
         
         # Helper function to convert relative positions to absolute ones
-        def to_absolute(rel_positions):
-            to_abs = lambda rel_pos: (position[0] + rel_pos[0], position[1] + rel_pos[1])
-            return list(map(to_abs, rel_positions))
-        
+        def to_absolute(positions):
+            to_abs = lambda p: (drone_y + p[1], drone_x + p[0])
+            return list(map(to_abs, positions))
+
+        """
         # Encode wall information
         is_wall_below = not self.env.is_inside(position=(position[0]+1, position[1]))
         is_wall_above = not self.env.is_inside(position=(position[0]-1, position[1]))
@@ -329,35 +330,19 @@ class EngineeredQTable():
         state.append(int(self.env.air.get_objects(Drone, right_positions)[0].size > 0))
         state.append(int(self.env.air.get_objects(Drone, above_positions)[0].size > 0))
         state.append(int(self.env.air.get_objects(Drone, stay_positions)[0].size > 0))
+        """
         
-        # Encode delivery (Packets + Dropzone) information
-        # (0, 1, 2, 3): direction to go to reach nearest packet when drone doesn't have one
-        # (4, 5, 6, 7): direction to go to reach dropzone when it has
+        # Target direction (nearest packet or associated dropzone)
+        targets, positions = self.env.ground.get_objects(Packet if drone.packet is None else Dropzone)
         if drone.packet is None:
-            packets, packets_positions = self.env.ground.get_objects(Packet)
-            l1_distances = np.abs(packets_positions[0] - position[0]) + np.abs(packets_positions[1] - position[1])
-            nearest_packet_idx = l1_distances.argmin()
-            direction_to_go = np.argmax([
-                # How far the packet is .. the drone
-                position[1] - packets_positions[1][nearest_packet_idx], # .. on the left of ..
-                packets_positions[0][nearest_packet_idx] - position[0], # .. below ..
-                packets_positions[1][nearest_packet_idx] - position[1], # .. on the right of ..
-                position[0] - packets_positions[0][nearest_packet_idx], # .. above ..
-            ])
+            l1_distances = np.abs(positions[0] - drone_y) + np.abs(positions[1] - drone_x)
+            target_idx = l1_distances.argmin() # Index of the nearest packet
         else:
-            dropzones, dropzones_positions = self.env.ground.get_objects(Dropzone)
-            dropzone, (dropzone_x, dropzone_y) = [
-                (d, p) for d, p in zip(dropzones, zip(*dropzones_positions))
-                if d.name == drone.packet.name
-            ][0]
-            direction_to_go = 4 + np.argmax([
-                # How far the dropzone is .. the drone
-                position[1] - dropzone_y, # .. on the left of ..
-                dropzone_x - position[0], # .. below ..
-                dropzone_y - position[1], # .. on the right of ..
-                position[0] - dropzone_x, # .. above ..
-            ])
-        state.append(direction_to_go)
+            target_idx = [d.name for d in targets].index(drone.packet.name)
+            
+         # How far the packet is {left, below, right, above} the drone
+        target_y, target_x = positions[0][target_idx], positions[1][target_idx]
+        state.append(np.argmax([drone_x-target_x, target_y-drone_y, target_x-drone_x, drone_y-target_y]))
         
         # Return encoded state
         encoded_state = EngineeredQTable.encode_state(state, self.state_base)
