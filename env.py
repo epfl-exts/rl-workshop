@@ -2,6 +2,9 @@ import numpy as np
 from enum import Enum
 from collections import defaultdict
 from gym.spaces.discrete import Discrete
+from gym import Env, ObservationWrapper, RewardWrapper
+from gym.utils import seeding
+import os
 
 class Action(Enum):
     LEFT = 0
@@ -75,56 +78,32 @@ class Grid():
         except ValueError:
             return False
         
-class DeliveryDrones():
-    drone_density = 0.05
+class DeliveryDrones(Env):
+    # OpenAI Gym environment fields
+    metadata = {
+        'render.modes': ['ainsi'],
+        'drone_density': 0.05
+    }
+    action_space = Discrete(len(Action))
+    #observation_space = None # TODO: 6-layers full representation
     
-    def __init__(self, drones_names, state_adaptator_class):
+    def __init__(self, drones_names):
         # Define size of the environment
         self.drones_names = drones_names
         self.n_drones = len(self.drones_names)
-        self.n_packets = self.n_drones
-        self.n_dropzones = self.n_packets
-        
-        self.side_size = int(np.ceil(np.sqrt(self.n_drones/self.drone_density)))
+        self.side_size = int(np.ceil(np.sqrt(self.n_drones/self.metadata['drone_density'])))
         self.shape = (self.side_size, self.side_size)
-        self.n_cells = self.shape[0] * self.shape[1]
-        
-        # Define action space
-        self.action_space = Discrete(len(Action))
-        
-        # Create state adaptator
-        self.state_adaptator = state_adaptator_class(self)
-        self.observation_space = self.state_adaptator.observation_space
-        
-    def reset(self):
-        # Create grids
-        self.air = Grid(shape=self.shape)
-        self.ground = Grid(shape=self.shape)
-        
-        # Spawn objects
-        self.ground.spawn([Packet(i) for i in range(self.n_packets)])
-        self.ground.spawn([Dropzone(i) for i in range(self.n_dropzones)])
-        self._pick_packets_after_respawn(
-            self.air.spawn([Drone(name) for name in self.drones_names]))
-        
-        # Return current states
-        return self._get_states()
-    
-    def _get_states(self):
-        return {
-            drone.name: self.state_adaptator.get_state(drone, *position)
-            for drone, position in self.air.get_objects(Drone, zip_results=True)
-        }
         
     def step(self, actions):
-        # Check how each drone plans to move
+        # By default, drones get a reward of zero
+        rewards = {name: 0 for name in actions.keys()}
+        
+        # Do some air navigation for drones based on actions
         new_positions = defaultdict(list)
         air_respawns = []
         ground_respawns = []
-        rewards = {name: 0 for name in actions.keys()}
-        dones = {name: False for name in actions.keys()}
-        drones, drones_idxs = self.air.get_objects(Drone)
-        for drone, position in zip(drones, zip(*drones_idxs)):
+
+        for drone, position in self.air.get_objects(Drone, zip_results=True):
             # Drones actually teleports, temporarily remove them from the air
             self.air[position] = None
             
@@ -141,23 +120,22 @@ class DeliveryDrones():
             else:
                 new_position = position
             
-            # Check where that new position is
+            # Drone plans to move to a valid place, save it
             if(self.air.is_inside(new_position)):
-                # Drone plans to move to a valid place, save it
                 new_positions[new_position].append(drone)
                   
-            # Drone plans to move outside the grid!
+            # Drone plans to move outside the grid -> crash
             else:
-                # Drone gets a negative reward and has to respawn
+                # Drone gets a negative reward and respawns
                 rewards[drone.name] = -1
                 air_respawns.append(drone)
                 
-                # Packet is destroyed and has to respawn
+                # Delivery content is lost with drone crash (!)
                 if drone.packet is not None:
                     ground_respawns.append(drone.packet)
                     drone.packet = None
                     
-        # Move drones that didn't went outisde the grid
+        # Fruther air navigation for drones that didn't went outside the grid
         for position, drones in new_positions.items():
             # Is there a collision?
             if len(drones) > 1:
@@ -165,7 +143,7 @@ class DeliveryDrones():
                 rewards.update({drone.name: -1 for drone in drones})
                 air_respawns.extend(drones)
                 
-                # Packets are destroyed and have to respawn
+                # Delivery content is lost with drones crash (!)
                 ground_respawns.extend([drone.packet for drone in drones if drone.packet is not None])
                 for drone in drones:
                     drone.packet = None
@@ -180,50 +158,68 @@ class DeliveryDrones():
                 # Does the drone already have a packet?
                 if drone.packet is not None:
                     # Then switch the packets
-                    drone.packet, self.ground[position] = (
-                        self.ground[position], drone.packet)
+                    drone.packet, self.ground[position] = (self.ground[position], drone.packet)
                     
                 # Otherwise, just take the packet
                 else:
                     drone.packet = self.ground[position]
                     self.ground[position] = None
-                    rewards[drone.name] = 1
                     
             # A drop zone?
             elif isinstance(self.ground[position], Dropzone):
+                dropzone = self.ground[position]
+                
                 # Did we just delivered a packet?
                 if drone.packet is not None:
-                    if drone.packet.name == self.ground[position].name:
-                        # Drone gets a positive reward
+                    if drone.packet.name == dropzone.name:
+                        # Drone gets a positive reward for the delivery (!)
                         rewards[drone.name] = 1
                         
-                        # Respawn packet and dropzone
-                        ground_respawns.extend([drone.packet, self.ground[position]])
+                        # Create new delivery
+                        ground_respawns.extend([drone.packet, dropzone])
                         self.ground[position] = None
                         drone.packet = None
                         
         # Respawn objects
         self.ground.spawn(ground_respawns)
         self._pick_packets_after_respawn(self.air.spawn(air_respawns))
+        
+        # Episode ends when drone respawns
+        dones = {name: False for name in actions.keys()}
         for drone in air_respawns:
             dones[drone.name] = True
         
         # Return new states, rewards, done and other infos
-        # TODO: Add reward adaptator
-        new_states = self._get_states()
-        return new_states, rewards, dones, {}
+        info = {'air_respawns': air_respawns, 'ground_respawns': ground_respawns}
+        return self._get_grids(), rewards, dones, info
+        
+    def reset(self):
+        # Create grids
+        self.air = Grid(shape=self.shape)
+        self.ground = Grid(shape=self.shape)
+        
+        # Spawn objects
+        self.ground.spawn([Packet(i) for i in range(self.n_drones)])
+        self.ground.spawn([Dropzone(i) for i in range(self.n_drones)])
+        self._pick_packets_after_respawn(
+            self.air.spawn([Drone(name) for name in self.drones_names]))
+        
+        return self._get_grids()
+        
+    def render(self, mode='ainsi'):
+        if mode == 'ainsi':
+            return self.__str__()
+        else:
+            super().render(mode=mode)
+    
+    def _get_grids(self):
+        return {'ground': self.ground, 'air': self.air}
         
     def _pick_packets_after_respawn(self, positions):
-        for x, y in zip(*positions):
-            if isinstance(self.ground[x, y], Packet):
-                self.air[x, y].packet = self.ground[x, y]
-                self.ground[x, y] = None
-                
-    def is_inside(self, position):
-        return self.air.is_inside(position)
-        
-    def render(self):
-        print(self.__str__())
+        for y, x in zip(*positions):
+            if isinstance(self.ground[y, x], Packet):
+                self.air[y, x].packet = self.ground[y, x]
+                self.ground[y, x] = None
     
     def __str__(self):
         # Convert air/ground tiles to text
@@ -264,51 +260,74 @@ class DeliveryDrones():
             lines.append(row_sep)
             
         return '\n'.join(lines)
-    
-    # TODO: really necessary? Probably already implemented in super class
-    def sample(self):
-        return self.action_space.sample()
-    def seed(self, n):
-        pass
-    
-# Objects to produce observation states
-class StateAdaptator():
-    def get_state(self, drone, env):
-        raise NotImplementedError()
         
-# State adaptator for methods based on Q-tables
-class EngineeredQTable():
+# Simple Observation Wrapper for agents based on Q-tables
+class DirectionQTable(ObservationWrapper):
     def __init__(self, env):
-        # Save environment
-        self.env = env
+        # Initialize wrapper
+        super().__init__(env)
         
-        # Global state is a list of "sub states" that encode "sub infos"
-        # Information about ex. walls, other drones, dropzones, packets
-        self.state_base = (
-            # 3, # Horizontal wall
-            # 3, # Verticall wall
-            # 2, # Is it "safe" moving left?
-            # 2, # Is it "safe" moving below?
-            # 2, # Is it "safe" moving right?
-            # 2, # Is it "safe" moving above?
-            # 2, # Is it "safe" staying at the same position?
-            4, # Target direction
-        )
-        self.n_states = np.prod(self.state_base)
+        # Define new observation space
+        self.state_base = (4,)
+        self.observation_space = Discrete(np.prod(self.state_base))
         
-        # Create gym observation space
-        self.observation_space = Discrete(self.n_states)
+    def observation(self, _):
+        return {
+            drone.name: self.get_drone_state(drone, *position)
+            for drone, position in self.env.air.get_objects(Drone, zip_results=True)
+        }
         
-    def get_state(self, drone, drone_y, drone_x):
+    def get_drone_state(self, drone, drone_y, drone_x):
         # State is a list of "sub states"
         state = list()
         
+        # Target direction (nearest packet or associated dropzone)
+        targets, positions = self.env.ground.get_objects(Packet if drone.packet is None else Dropzone)
+        if drone.packet is None:
+            l1_distances = np.abs(positions[0] - drone_y) + np.abs(positions[1] - drone_x)
+            target_idx = l1_distances.argmin() # Index of the nearest packet
+        else:
+            target_idx = [d.name for d in targets].index(drone.packet.name)
+            
+         # How far the packet is {left, below, right, above} the drone
+        target_y, target_x = positions[0][target_idx], positions[1][target_idx]
+        state.append(np.argmax([drone_x-target_x, target_y-drone_y, target_x-drone_x, drone_y-target_y]))
+        
+        # Return encoded state
+        encoded_state = DirectionQTable.encode_state(state, self.state_base)
+        return encoded_state
+    
+    # A set of static functions to encode/decode states between tuples and 0-indexed integers
+    # This is useful for methods based on Q-tables that need states to be represented as a single integer
+    def encode_state(n_tuple, base):
+        """Base and n_tuple are tuples of positive integers"""
+        n = 0
+        for x, factor in zip(n_tuple, DirectionQTable.get_base_factors(base)):
+            n += factor*x
+        return n
+
+    def decode_state(n, base):
+        """Base is a tuple of positive integer"""
+        remainder = n
+        n_tuple = []
+        for factor in DirectionQTable.get_base_factors(base):
+            n_tuple.append(remainder // factor)
+            remainder %= factor
+        return tuple(n_tuple)
+
+    def get_base_factors(base):
+        """Base is a tuple of positive integer"""
+        base_factors = []
+        for base_i in range(len(base)):
+            base_factors.append(int(np.prod(base[base_i+1:])))
+        return base_factors
+    
+"""TODO: more complex observation wrapper with collision information
         # Helper function to convert relative positions to absolute ones
         def to_absolute(positions):
             to_abs = lambda p: (drone_y + p[1], drone_x + p[0])
             return list(map(to_abs, positions))
 
-        """
         # Encode wall information
         is_wall_below = not self.env.is_inside(position=(position[0]+1, position[1]))
         is_wall_above = not self.env.is_inside(position=(position[0]-1, position[1]))
@@ -330,50 +349,9 @@ class EngineeredQTable():
         state.append(int(self.env.air.get_objects(Drone, right_positions)[0].size > 0))
         state.append(int(self.env.air.get_objects(Drone, above_positions)[0].size > 0))
         state.append(int(self.env.air.get_objects(Drone, stay_positions)[0].size > 0))
-        """
-        
-        # Target direction (nearest packet or associated dropzone)
-        targets, positions = self.env.ground.get_objects(Packet if drone.packet is None else Dropzone)
-        if drone.packet is None:
-            l1_distances = np.abs(positions[0] - drone_y) + np.abs(positions[1] - drone_x)
-            target_idx = l1_distances.argmin() # Index of the nearest packet
-        else:
-            target_idx = [d.name for d in targets].index(drone.packet.name)
+"""
             
-         # How far the packet is {left, below, right, above} the drone
-        target_y, target_x = positions[0][target_idx], positions[1][target_idx]
-        state.append(np.argmax([drone_x-target_x, target_y-drone_y, target_x-drone_x, drone_y-target_y]))
-        
-        # Return encoded state
-        encoded_state = EngineeredQTable.encode_state(state, self.state_base)
-        return encoded_state
-    
-    # A set of static functions to encode/decode states between tuples and 0-indexed integers
-    # This is useful for methods based on Q-tables that need states to be represented as a single integer
-    def encode_state(n_tuple, base):
-        """Base and n_tuple are tuples of positive integers"""
-        n = 0
-        for x, factor in zip(n_tuple, EngineeredQTable.get_base_factors(base)):
-            n += factor*x
-        return n
-
-    def decode_state(n, base):
-        """Base is a tuple of positive integer"""
-        remainder = n
-        n_tuple = []
-        for factor in EngineeredQTable.get_base_factors(base):
-            n_tuple.append(remainder // factor)
-            remainder %= factor
-        return tuple(n_tuple)
-
-    def get_base_factors(base):
-        """Base is a tuple of positive integer"""
-        base_factors = []
-        for base_i in range(len(base)):
-            base_factors.append(int(np.prod(base[base_i+1:])))
-        return base_factors
-            
-class SimpleGrid(StateAdaptator):
+class SimpleGrid(ObservationWrapper):
     # TODO
     """
         # TODO: Drones layers
