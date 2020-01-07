@@ -1,7 +1,8 @@
 from collections import defaultdict, Counter
+from IPython.display import display
 import matplotlib.pyplot as plt
 import seaborn as sns
-from tqdm import tqdm
+from tqdm import tqdm_notebook
 import pandas as pd
 import numpy as np
 import random
@@ -16,83 +17,43 @@ def set_seed(env, seed):
     torch.manual_seed(seed)  # PyTorch seed
     random.seed(seed) # seed for Python random library
 
-# Print Q-table as a DataFrame
-def format_qtable(q_table, action_names={}, fmt='{}'):
+# Reformat a Q-table for readability
+def render_qtable(q_table, action_names={}, fmt='{}'):
+    # Create DataFrame
     df = pd.DataFrame(q_table)
-    df.columns = [(action_names[i] if i in action_names else i) for i in range(q_table.shape[1])]
+    df.columns = [
+        (action_names[i] if i in action_names else i)
+        for i in range(q_table.shape[1])]
     df.index.name = 'state'
-    return df.applymap(fmt.format)
     
-# Function to plot values related to training an agent ex. returns
-def plot_values(values, name, ax, rolling_window=None, hline=None):
-    if len(values) > 0:
-        episodes_range = range(1, len(values)+1) # One value per episode
-        
-        if rolling_window is None:
-            ax.plot(episodes_range, values, label=name, c='C1')
-        
-        else:
-            ax.plot(episodes_range, values, alpha=0.2, c='C0') # Plot values
-            
-            # Rolling mean and standard deviation
-            rolling_mean = pd.Series(values).rolling(rolling_window).mean()
-            rolling_std = pd.Series(values).rolling(rolling_window).std()
-
-            # Plot rolling mean ± 1 std
-            ax.fill_between(
-                range(1, len(rolling_mean)+1),
-                rolling_mean - rolling_std,
-                rolling_mean + rolling_std,
-                alpha=0.2, facecolor='C0'
-            )
-            ax.plot(
-                range(1, len(rolling_mean)+1),
-                rolling_mean, c='C1',
-                label='rolling mean ± std (n={})'.format(rolling_window)
-            )
-        
-    if hline is not None:
-        ax.axhline(hline, label='target value', c='C0', linestyle='--')
-
-    # Add title, labels and legend
-    last_value = 'None' if len(values) == 0 else '{:.4f}'.format(values[-1])
-    ax.set_title('Episodes: {}, last value: {}'.format(len(values), last_value))
-    ax.set_xlabel('Episode')
-    ax.set_ylabel(name)
-    ax.legend()
-    
-# Function to print results
-def print_results(agent_logs):
-    print('Results on {:,} episodes'.format(len(agent_logs['returns'])))
-    print('Mean episodes return: {:.3f}, std: {:.3f}'.format(
-        np.mean(agent_logs['returns']), np.std(agent_logs['returns'])))
-    print('Mean episodes length: {:.1f}, std: {:.1f}'.format(
-        np.mean(agent_logs['lengths']), np.std(agent_logs['lengths'])))
+    # Format and render
+    display(df.applymap(fmt.format))
 
 # A Trainer class
 class MultiAgentTrainer():
-    def __init__(self, env, agents, seed):
+    def __init__(self, env, agents, seed=None):
         # Save parameters
         self.env, self.agents, self.seed = env, agents, seed
         
         # Create log of rewards and reset agents
-        self.all_rewards = {name: [] for name in self.agents.keys()}
+        self.rewards_log = {name: [] for name in self.agents.keys()}
         self.reset()
         
     def reset(self):
         # Set seed for reproducibility
-        set_seed(self.env, self.seed)
+        if self.seed is not None:
+            set_seed(self.env, self.seed)
         
         # Reset agents and clear log of rewards
         for name, agent in self.agents.items():
             agent.reset()
-            self.all_rewards[name].clear()
+            self.rewards_log[name].clear()
 
     def train(self, n_steps):
         # Reset env. and get initial observations
         states = self.env.reset()
         
-        for i in range(n_steps):
+        for i in tqdm_notebook(range(n_steps), 'Training agents'):
             # Select actions based on current states
             actions = {name: agent.act(states[name]) for name, agent in self.agents.items()}
 
@@ -102,61 +63,92 @@ class MultiAgentTrainer():
             # Learn from experience
             for name, agent in self.agents.items():
                 agent.learn(states[name], actions[name], rewards[name], next_states[name], dones[name])
-                self.all_rewards[name].append(rewards[name])
+                self.rewards_log[name].append(rewards[name])
             states = next_states
     
 # Function to test agents
-def test_agent(env, agent, nb_evaluations=1, seed=0, action_names=None, max_nb_timesteps=None, verbose=False, render=False):
-    # Set defaults for optional parameters
-    if action_names is None:
-        action_names = range(env.action_space.n) # Use 0..n action number as name
-    if max_nb_timesteps is None:
-        max_nb_timesteps = env.env.spec.max_episode_steps # Use default env. value
+def test_agents(env, agents, n_steps, seed=None):
+    # Initialization
+    if seed is not None:
+        set_seed(env, seed=seed)
+    states = env.reset()
+    rewards_log = defaultdict(list)
     
-    # Dictionary to store episode lengths and returns
-    episodes_log = {'lengths': [], 'returns': []}
-    
-    # Set seeds
-    set_seed(env, seed=seed)
-    
-    # Run agent for the specified number of episodes
-    for i_episode in tqdm(range(nb_evaluations)):
-        # Initialize episode
-        episode_return, episode_length, done = 0, 0, False # Initialization
-        state = env.reset() # Get initial observation
+    for _ in tqdm_notebook(range(n_steps), 'Testing agents'):
+        # Select actions based on current states
+        actions = {name: agent.act(states[name]) for name, agent in agents.items()}
         
-        # Render and print initial state when needed
-        if render:
-            env.render()
-        if verbose:
-            print('initial state: {:<2}'.format(state))
-                
-        # Run the agent until it reaches the goal or the max. number of timesteps
-        while not done and episode_length < max_nb_timesteps:
-            # Select and perform next action
-            action = agent.act(state)
-            next_state, reward, done, _ = env.step(action)
-            episode_return += reward
-            episode_length += 1
+        # Perform the selected action
+        next_states, rewards, dones, _ = env.step(actions)
+        
+        # Save rewards
+        for name, reward in rewards.items():
+            rewards_log[name].append(reward)
+        
+        states = next_states
 
-            # Render and print progress if needed
-            if render:
-                env.render()
-            if verbose:
-                print('step: {}, state: {}, action: {}, next state: {}, reward: {}'.format(
-                    episode_length, state, action_names[action], next_state, reward))
+    return rewards_log
 
-            state = next_state
+def plot_cumulated_rewards(rewards_log, ax=None):
+    # Creat figure etc.. if ax none
+    create_figure = (ax is None)
+    if create_figure:
+        fig = plt.figure(figsize=(12, 4))
+        ax = fig.gca()
+    
+    # Plot rewards
+    for name, rewards in rewards_log.items():
+        # Work with Numpy array
+        rewards = np.array(rewards)
+        
+        # Compute cumulative sum
+        cumsum = np.cumsum(rewards)
+        idxs = range(1, len(cumsum) + 1)
+        
+        # Create label with pickup/crash rate
+        label = r'{} (reward: {:.3f}±{:.3f}, pickup: {:.2f}% crash: {:.2f}%)'.format(
+            name, np.mean(rewards), np.std(rewards),
+            100*np.mean(rewards == 1), 100*np.mean(rewards == -1))
+        
+        # Plot results
+        ax.step(idxs, cumsum, label=label)
 
-        # End of episode: log length and return
-        if verbose:
-            print('Agent finished evaluation {} after {} timesteps with a return of {:.2f}'.format(
-                i_episode+1, episode_length, episode_return))
+    ax.set_xlabel('Step')
+    ax.set_ylabel('Cumulative reward')
+    ax.legend()
+    
+    if create_figure:
+        plt.show()
+    
+def plot_rolling_rewards(rewards_log, ax=None, window=None, hline=None):
+    # Creat figure etc.. if ax none
+    create_figure = (ax is None)
+    if create_figure:
+        fig = plt.figure(figsize=(12, 4))
+        ax = fig.gca()
+        
+    for name, rewards in rewards_log.items():
+        # Work with Numpy array
+        rewards = np.array(rewards)
+        steps = range(1, len(rewards)+1)
+        
+        # Set default for window size
+        window = int(len(rewards)/10) if window is None else window
+            
+        # Plot rolling mean
+        rolling_mean = pd.Series(rewards).rolling(window).mean()
+        ax.plot(steps, rolling_mean,label=name)
+        
+    if hline is not None:
+        ax.axhline(hline, label='target value', c='C0', linestyle='--')
 
-        episodes_log['returns'].append(episode_return)
-        episodes_log['lengths'].append(episode_length)
-
-    return episodes_log
+    # Add title, labels and legend
+    ax.set_xlabel('Steps (rolling window: {})'.format(window))
+    ax.set_ylabel('Rewards')
+    ax.legend()
+    
+    if create_figure:
+        plt.show()
 
 # Base agent
 class BaseAgent():
