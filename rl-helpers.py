@@ -203,31 +203,37 @@ class BasicQLearningAgent(BaseAgent):
 
 # Q-learning agent
 class QLearningAgent(BasicQLearningAgent):
-    def __init__(self, state_size, action_size, gamma, alpha):
-        # Adding a "learning rate" parameter
-        self.alpha = alpha
+    def __init__(self, state_size, action_size, gamma, alpha, epsilon_start, epsilon_end, epsilon_decay):
+        # Save hyperparameters
+        self.alpha = alpha # learning rate
+        self.epsilon_start = epsilon_start # Exploration rate
+        self.epsilon_end = epsilon_end
+        self.epsilon_decay = epsilon_decay
+        self.is_greedy = False
         
         # Initialize the Q-table
         super().__init__(state_size, action_size, gamma)
+        
+    def reset(self):
+        # Reset epsilon value
+        self.epsilon = self.epsilon_start
+        
+        # Reset Q-table
+        super().reset()
 
     def learn(self, state, action, reward, next_state, done):
-        if done: # Ignore future return if this experience is terminal
-            td_target = reward 
-        else: # Discounted return
+        # Compute td-target
+        if done:
+            td_target = reward # Ignore future return
+        else:
             td_target = reward + self.gamma * np.max(self.q_table[next_state]) 
+            
+        # Epsilon decay
+        if done:
+            self.epsilon = max(self.epsilon * self.epsilon_decay, self.epsilon_end)
         
         # Update Q-table using the TD target and learning rate
         self.q_table[state, action] = (1 - self.alpha) * self.q_table[state, action] + self.alpha * td_target
-        
-# Q-learning agent with epsilon greedy strategy
-class EpsilonGreedyQLearningAgent(QLearningAgent):
-    def __init__(self, state_size, action_size, gamma, alpha, epsilon):
-        # Add an "exploration rate" parameter
-        self.epsilon = epsilon
-        self.is_greedy = False
-        
-        # Initialize Q-table
-        super().__init__(state_size, action_size, gamma, alpha)
 
     def act(self, state):
         # Exploration rate
@@ -240,3 +246,6 @@ class EpsilonGreedyQLearningAgent(QLearningAgent):
         
     def greedy(self, is_greedy=True):
         self.is_greedy = is_greedy
+
+    def get_epsilons(self, n):
+        return self.epsilon_start * (self.epsilon_decay**np.arange(n))
