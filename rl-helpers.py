@@ -224,12 +224,19 @@ class EpsilonGreedyQLearningAgent(QLearningAgent):
     def __init__(self, state_size, action_size, gamma, alpha, epsilon):
         # Add an "exploration rate" parameter
         self.epsilon = epsilon
+        self.is_greedy = False
         
         # Initialize Q-table
         super().__init__(state_size, action_size, gamma, alpha)
 
     def act(self, state):
-        if np.random.rand() < self.epsilon:
+        # Exploration rate
+        epsilon = 0.01 if self.is_greedy else self.epsilon
+            
+        if np.random.rand() < epsilon:
             return np.random.choice(self.action_size) # Random action
         else:
             return np.argmax(self.q_table[state]) # Greedy action
+        
+    def greedy(self, is_greedy=True):
+        self.is_greedy = is_greedy
