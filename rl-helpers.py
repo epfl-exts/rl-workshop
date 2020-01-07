@@ -89,29 +89,33 @@ def test_agents(env, agents, n_steps, seed=None):
 
     return rewards_log
 
-def plot_cumulated_rewards(rewards_log, ax=None):
+def plot_cumulated_rewards(rewards_log, ax=None, subset=None):
     # Creat figure etc.. if ax none
     create_figure = (ax is None)
     if create_figure:
         fig = plt.figure(figsize=(12, 4))
         ax = fig.gca()
+        
+    # Define which entry to plot
+    subset = rewards_log.keys() if subset is None else subset
     
     # Plot rewards
     for name, rewards in rewards_log.items():
-        # Work with Numpy array
-        rewards = np.array(rewards)
-        
-        # Compute cumulative sum
-        cumsum = np.cumsum(rewards)
-        idxs = range(1, len(cumsum) + 1)
-        
-        # Create label with pickup/crash rate
-        label = r'{} (reward: {:.3f}±{:.3f}, pickup: {:.2f}% crash: {:.2f}%)'.format(
-            name, np.mean(rewards), np.std(rewards),
-            100*np.mean(rewards == 1), 100*np.mean(rewards == -1))
-        
-        # Plot results
-        ax.step(idxs, cumsum, label=label)
+        if name in subset:
+            # Work with Numpy array
+            rewards = np.array(rewards)
+
+            # Compute cumulative sum
+            cumsum = np.cumsum(rewards)
+            idxs = range(1, len(cumsum) + 1)
+
+            # Create label with pickup/crash rate
+            label = r'{} (reward: {:.3f}±{:.3f}, pickup: {:.2f}% crash: {:.2f}%)'.format(
+                name, np.mean(rewards), np.std(rewards),
+                100*np.mean(rewards == 1), 100*np.mean(rewards == -1))
+
+            # Plot results
+            ax.step(idxs, cumsum, label=label)
 
     ax.set_xlabel('Step')
     ax.set_ylabel('Cumulative reward')
@@ -120,24 +124,28 @@ def plot_cumulated_rewards(rewards_log, ax=None):
     if create_figure:
         plt.show()
     
-def plot_rolling_rewards(rewards_log, ax=None, window=None, hline=None):
+def plot_rolling_rewards(rewards_log, ax=None, window=None, hline=None, subset=None):
     # Creat figure etc.. if ax none
     create_figure = (ax is None)
     if create_figure:
         fig = plt.figure(figsize=(12, 4))
         ax = fig.gca()
         
-    for name, rewards in rewards_log.items():
-        # Work with Numpy array
-        rewards = np.array(rewards)
-        steps = range(1, len(rewards)+1)
+    # Define which entry to plot
+    subset = rewards_log.keys() if subset is None else subset
         
-        # Set default for window size
-        window = int(len(rewards)/10) if window is None else window
-            
-        # Plot rolling mean
-        rolling_mean = pd.Series(rewards).rolling(window).mean()
-        ax.plot(steps, rolling_mean,label=name)
+    for name, rewards in rewards_log.items():
+        if name in subset:
+            # Work with Numpy array
+            rewards = np.array(rewards)
+            steps = range(1, len(rewards)+1)
+
+            # Set default for window size
+            window = int(len(rewards)/10) if window is None else window
+
+            # Plot rolling mean
+            rolling_mean = pd.Series(rewards).rolling(window).mean()
+            ax.plot(steps, rolling_mean,label=name)
         
     if hline is not None:
         ax.axhline(hline, label='target value', c='C0', linestyle='--')
