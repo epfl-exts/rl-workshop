@@ -172,7 +172,7 @@ class DeliveryDrones(Env):
                 # Did we just delivered a packet?
                 if drone.packet is not None:
                     if drone.packet.name == dropzone.name:
-                        # Drone gets a positive reward for the delivery (!)
+                        # Pay the drone for the delivery
                         rewards[drone.name] = 1
                         
                         # Create new delivery
@@ -350,7 +350,7 @@ class DirectionQTable(ObservationWrapper):
         state.append(int(self.env.air.get_objects(Drone, above_positions)[0].size > 0))
         state.append(int(self.env.air.get_objects(Drone, stay_positions)[0].size > 0))
 """
-            
+    
 class SimpleGrid(ObservationWrapper):
     # TODO
     """
