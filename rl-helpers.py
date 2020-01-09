@@ -9,28 +9,16 @@ import random
 import torch
 import gym
 
-# Helper function to set the seeds when needed
 def set_seed(env, seed):
+    """Helper function to set the seeds when needed"""
     env.seed(seed) # Environment seed
     env.action_space.seed(seed) # Seed for env.action_space.sample()
     np.random.seed(seed) # Numpy seed
     torch.manual_seed(seed)  # PyTorch seed
     random.seed(seed) # seed for Python random library
 
-# Reformat a Q-table for readability
-def render_qtable(q_table, action_names={}, fmt='{}'):
-    # Create DataFrame
-    df = pd.DataFrame(q_table)
-    df.columns = [
-        (action_names[i] if i in action_names else i)
-        for i in range(q_table.shape[1])]
-    df.index.name = 'state'
-    
-    # Format and render
-    display(df.applymap(fmt.format))
-
-# A Trainer class
 class MultiAgentTrainer():
+    """A class to train agents in a multi-agent environment"""
     def __init__(self, env, agents, seed=None):
         # Save parameters
         self.env, self.agents, self.seed = env, agents, seed
@@ -66,8 +54,9 @@ class MultiAgentTrainer():
                 self.rewards_log[name].append(rewards[name])
             states = next_states
     
-# Function to test agents
 def test_agents(env, agents, n_steps, seed=None):
+    """Function to test agents"""
+    
     # Initialization
     if seed is not None:
         set_seed(env, seed=seed)
@@ -157,83 +146,54 @@ def plot_rolling_rewards(rewards_log, ax=None, window=None, hline=None, subset=N
     
     if create_figure:
         plt.show()
-
-# Base agent
-class BaseAgent():
-    def __init__(self, state_size, action_size):
-        self.state_size, self.action_size = state_size, action_size
-        self.reset()
-
-    # Reset the agent to its original state
-    def reset(self):
-        ... # Placeholder: we will need to implement it
-
-    # Pick action based on current state
-    def act(self, state):
-        return 0 # Placeholder: arbitrarily return action 0
-
-    # Update the Q-table based on an experience
-    def learn(self, state, action, reward, next_state, done):
-        ... # Placeholder: we will need to implement it
         
-# Random agent
-class RandomAgent(BaseAgent):
-    def act(self, state): # Randomly choose actions
-        return np.random.choice(self.action_size)
+# Below are implementations of some standard RL agents
+class RandomAgent():
+    """Random agent"""
+    def __init__(self, env):
+        self.env = env
         
-# Basic Q-learning agent (without alpha)
-class BasicQLearningAgent(BaseAgent):
-    def __init__(self, state_size, action_size, gamma):
-        self.gamma = gamma
-        super().__init__(state_size, action_size)
-    
-    def reset(self):
-        self.q_table = np.random.rand(self.state_size, self.action_size)
-
-    # Q-learning selects the action with the highest expected return
     def act(self, state):
-        return np.argmax(self.q_table[state])
-
-    # Q-learning update rule
-    def learn(self, state, action, reward, next_state, done):
-        if done: # Ignore future return if this experience is terminal
-            self.q_table[state, action] = reward
-        else: # Otherwise, update the Q-table using the temporal difference
-            self.q_table[state, action] = reward + self.gamma * np.max(self.q_table[next_state])
-
-# Q-learning agent
-class QLearningAgent(BasicQLearningAgent):
-    def __init__(self, state_size, action_size, gamma, alpha, epsilon_start, epsilon_end, epsilon_decay):
-        # Save hyperparameters
-        self.alpha = alpha # learning rate
+        return self.env.action_space.sample()
+        
+class QLearningAgent():
+    """
+    A Q-learning implementation that uses a dictionary as table
+    with flattened observations as keys leveraging gym.spaces.flatten()
+    Note: The action space has to be a gym.space.Discrete() object
+    """
+    def __init__(self, env, gamma, alpha, epsilon_start, epsilon_end, epsilon_decay):
+        # Sanity checks related to this particular implementation
+        isinstance(env.action_space, spaces.Discrete)
+        isinstance(env.observation_space, spaces.Space)
+        
+        self.env = env
+        self.gamma = gamma # Discount factor
+        self.alpha = alpha # Learning rate
         self.epsilon_start = epsilon_start # Exploration rate
-        self.epsilon_end = epsilon_end
-        self.epsilon_decay = epsilon_decay
-        self.is_greedy = False
-        
-        # Initialize the Q-table
-        super().__init__(state_size, action_size, gamma)
+        self.epsilon_decay = epsilon_decay # Decay after each episode
+        self.epsilon_end = epsilon_end # Minimum value
+        self.is_greedy = False # Does the agent behave greedily?
         
     def reset(self):
-        # Reset epsilon value
+        # Reset Q-table, exploration rate (before training)
+        self.q_table = {}
         self.epsilon = self.epsilon_start
-        
-        # Reset Q-table
-        super().reset()
 
     def learn(self, state, action, reward, next_state, done):
         # Compute td-target
         if done:
             td_target = reward # Ignore future return
         else:
-            td_target = reward + self.gamma * np.max(self.q_table[next_state]) 
+            td_target = reward + self.gamma * max(self.get_qvalues(next_state))
             
         # Epsilon decay
         if done:
             self.epsilon = max(self.epsilon * self.epsilon_decay, self.epsilon_end)
         
         # Update Q-table using the TD target and learning rate
-        self.q_table[state, action] = (1 - self.alpha) * self.q_table[state, action] + self.alpha * td_target
+        new_qvalue = (1 - self.alpha) * self.get_values(state)[action] + self.alpha * td_target
+        self.set_qvalue(state, action, new_qvalue)
 
     def act(self, state):
         # Exploration rate
@@ -243,9 +203,37 @@ class QLearningAgent(BasicQLearningAgent):
             return np.random.choice(self.action_size) # Random action
         else:
             return np.argmax(self.q_table[state]) # Greedy action
+    
+    def get_qvalues(self, state):
+        # Flatten state
+        state = tuple(spaces.flatten(self.env.observation_space, state))
+        
+        # Generate new entry in table if not accessed yet
+        if state not in self.q_table:
+            self.q_table[state] = np.random.rand(self.env.action_space.n)
+            
+        return self.q_table[state]
+    
+    def get_qvalue(self, state, action):
+        return 
+        
+    def set_qvalue(self, state, action, v):
+        # TODO
         
     def greedy(self, is_greedy=True):
         self.is_greedy = is_greedy
 
     def get_epsilons(self, n):
         return self.epsilon_start * (self.epsilon_decay**np.arange(n))
+    
+    # Reformat a Q-table for readability
+    def render_qtable(q_table, action_names={}, fmt='{}'):
+        # Create DataFrame
+        df = pd.DataFrame(q_table)
+        df.columns = [
+            (action_names[i] if i in action_names else i)
+            for i in range(q_table.shape[1])]
+        df.index.name = 'state'
+
+        # Format and render
+        display(df.applymap(fmt.format))

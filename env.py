@@ -1,7 +1,7 @@
 import numpy as np
 from enum import Enum
-from collections import defaultdict
-from gym.spaces.discrete import Discrete
+from collections import defaultdict, OrderedDict
+import gym.spaces as spaces
 from gym import Env, ObservationWrapper, RewardWrapper
 from gym.utils import seeding
 import os
@@ -47,7 +47,7 @@ class Grid():
         self.grid[key] = value
     
     def get_objects(self, object_type, positions=None, zip_results=False):
-        'Filter objects matching criteria'
+        """Filter objects matching criteria"""
         objects_mask = np.vectorize(lambda tile: isinstance(tile, object_type))(self.grid)
 
         if positions is not None:
@@ -57,15 +57,14 @@ class Grid():
             objects_mask = np.logical_and(objects_mask, position_mask)
         
         if zip_results:
-            # Make things much easier in for loops
-            # Example: .. for obj, pos in get_objects(..)
+            # Make things much easier in for loops ".. for obj, pos in get_objects(..)"
             return zip(self[objects_mask], zip(*np.nonzero(objects_mask)))
         else:
             # Numpy like format: objects, (pos_x, pos_y)
             return self[objects_mask], np.nonzero(objects_mask)
     
     def spawn(self, objects):
-        'Spawn objects on empty tiles. Return positions.'
+        """Spawn objects on empty tiles. Return positions."""
         flat_idxs = np.random.choice(np.flatnonzero(self.grid == None), size=len(objects), replace=False)
         idxs = np.unravel_index(flat_idxs, self.shape)
         self.grid[idxs] = objects
@@ -84,8 +83,6 @@ class DeliveryDrones(Env):
         'render.modes': ['ainsi'],
         'drone_density': 0.05
     }
-    action_space = Discrete(len(Action))
-    #observation_space = None # TODO: 6-layers full representation
     
     def __init__(self, drones_names):
         # Define size of the environment
@@ -93,6 +90,10 @@ class DeliveryDrones(Env):
         self.n_drones = len(self.drones_names)
         self.side_size = int(np.ceil(np.sqrt(self.n_drones/self.metadata['drone_density'])))
         self.shape = (self.side_size, self.side_size)
+        
+        # Define spaces
+        self.action_space = spaces.Discrete(len(Action))
+        # TODO: implement 6-layers full state representation
         
     def step(self, actions):
         # By default, drones get a reward of zero
@@ -261,27 +262,25 @@ class DeliveryDrones(Env):
             
         return '\n'.join(lines)
         
-# Simple Observation Wrapper for agents based on Q-tables
-class DirectionQTable(ObservationWrapper):
+class TargetQTable(ObservationWrapper):
+    """
+    Observation wrapper for Q-table based algorithms with only
+    the direction of the target as information (left/down/right/up states)
+    Note: Target can be the direction of the nearest packet or associated dropzone
+    """
     def __init__(self, env):
-        # Initialize wrapper
+        # Initialize wrapper with observation space
         super().__init__(env)
-        
-        # Define new observation space
-        self.state_base = (4,)
-        self.observation_space = Discrete(np.prod(self.state_base))
+        self.observation_space = spaces.Discrete(4)
         
     def observation(self, _):
+        # Return state for each drone
         return {
             drone.name: self.get_drone_state(drone, *position)
-            for drone, position in self.env.air.get_objects(Drone, zip_results=True)
-        }
+            for drone, position in self.env.air.get_objects(Drone, zip_results=True)}
         
-    def get_drone_state(self, drone, drone_y, drone_x):
-        # State is a list of "sub states"
-        state = list()
-        
-        # Target direction (nearest packet or associated dropzone)
+    def get_drone_state(self, drone, drone_y, drone_x):        
+        # Target direction: nearest packet or associated dropzone
         targets, positions = self.env.ground.get_objects(Packet if drone.packet is None else Dropzone)
         if drone.packet is None:
             l1_distances = np.abs(positions[0] - drone_y) + np.abs(positions[1] - drone_x)
@@ -289,38 +288,32 @@ class DirectionQTable(ObservationWrapper):
         else:
             target_idx = [d.name for d in targets].index(drone.packet.name)
             
-         # How far the packet is {left, below, right, above} the drone
+         # Direction to go to reduce distance to the packet
         target_y, target_x = positions[0][target_idx], positions[1][target_idx]
-        state.append(np.argmax([drone_x-target_x, target_y-drone_y, target_x-drone_x, drone_y-target_y]))
+        direction = np.argmax([drone_x-target_x, target_y-drone_y, target_x-drone_x, drone_y-target_y])
+        # Arbitrarily use argmax(): direction to any positive value above would work
         
-        # Return encoded state
-        encoded_state = DirectionQTable.encode_state(state, self.state_base)
-        return encoded_state
+        return direction
     
-    # A set of static functions to encode/decode states between tuples and 0-indexed integers
-    # This is useful for methods based on Q-tables that need states to be represented as a single integer
-    def encode_state(n_tuple, base):
-        """Base and n_tuple are tuples of positive integers"""
-        n = 0
-        for x, factor in zip(n_tuple, DirectionQTable.get_base_factors(base)):
-            n += factor*x
-        return n
-
-    def decode_state(n, base):
-        """Base is a tuple of positive integer"""
-        remainder = n
-        n_tuple = []
-        for factor in DirectionQTable.get_base_factors(base):
-            n_tuple.append(remainder // factor)
-            remainder %= factor
-        return tuple(n_tuple)
-
-    def get_base_factors(base):
-        """Base is a tuple of positive integer"""
-        base_factors = []
-        for base_i in range(len(base)):
-            base_factors.append(int(np.prod(base[base_i+1:])))
-        return base_factors
+class TargetCollisionQTable(TargetQTable):
+    def __init__(self, env):
+        # Initialize wrapper with observation space
+        super().__init__(env)
+        self.observation_space = spaces.Dict([
+            ('target', spaces.Discrete(4)),
+            ('collision', spaces.MultiBinary(4))
+        ])
+        
+    def get_drone_state(self, drone, drone_y, drone_x):
+        # Get target direction
+        target = super().get_drone_state(drone, drone_y, drone_y)
+        
+        # TODO: Add collision info
+        collision = [0, 0, 0, 0]
+        
+        # Use the same ordering as obs. space to avoid any issues
+        return OrderedDict([('target', target), ('collision', collision)])
+        
     
 """TODO: more complex observation wrapper with collision information
         # Helper function to convert relative positions to absolute ones
@@ -350,25 +343,23 @@ class DirectionQTable(ObservationWrapper):
         state.append(int(self.env.air.get_objects(Drone, above_positions)[0].size > 0))
         state.append(int(self.env.air.get_objects(Drone, stay_positions)[0].size > 0))
 """
-    
-class SimpleGrid(ObservationWrapper):
-    # TODO
-    """
-        # TODO: Drones layers
-        my_drone_layer = np.zeros(shape=self.shape)
-        other_drones_layer = np.zeros(shape=self.shape)
-        
-        # TODO: Packets layers
-        my_packet_layer = np.zeros(shape=self.shape)
-        other_packets_layer = np.zeros(shape=self.shape)
-        
-        # TODO: Dropzones layers
-        my_dropzone_layer = np.zeros(shape=self.shape)
-        other_dropzones_layer = np.zeros(shape=self.shape)
-        
-        return np.stack([
-            my_drone_layer, other_drones_layer,
-            my_packet_layer, other_packets_layer,
-            my_dropzone_layer, other_dropzones_layer
-        ], axis=-1)
-    """
+
+"""
+    # TODO: Drones layers
+    my_drone_layer = np.zeros(shape=self.shape)
+    other_drones_layer = np.zeros(shape=self.shape)
+
+    # TODO: Packets layers
+    my_packet_layer = np.zeros(shape=self.shape)
+    other_packets_layer = np.zeros(shape=self.shape)
+
+    # TODO: Dropzones layers
+    my_dropzone_layer = np.zeros(shape=self.shape)
+    other_dropzones_layer = np.zeros(shape=self.shape)
+
+    return np.stack([
+        my_drone_layer, other_drones_layer,
+        my_packet_layer, other_packets_layer,
+        my_dropzone_layer, other_dropzones_layer
+    ], axis=-1)
+"""
