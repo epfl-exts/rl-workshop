@@ -79,10 +79,7 @@ class Grid():
         
 class DeliveryDrones(Env):
     # OpenAI Gym environment fields
-    metadata = {
-        'render.modes': ['ainsi'],
-        'drone_density': 0.05
-    }
+    metadata = {'render.modes': ['ainsi'], 'drone_density': 0.05}
     
     def __init__(self, drones_names):
         # Define size of the environment

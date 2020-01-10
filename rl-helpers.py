@@ -7,7 +7,7 @@ import pandas as pd
 import numpy as np
 import random
 import torch
-import gym
+import gym.spaces as spaces
 
 def set_seed(env, seed):
     """Helper function to set the seeds when needed"""
@@ -155,6 +155,12 @@ class RandomAgent():
         
     def act(self, state):
         return self.env.action_space.sample()
+    
+    def reset(self):
+        pass
+    
+    def learn(self, state, action, reward, next_state, done):
+        pass
         
 class QLearningAgent():
     """
@@ -162,7 +168,7 @@ class QLearningAgent():
     with flattened observations as keys leveraging gym.spaces.flatten()
     Note: The action space has to be a gym.space.Discrete() object
     """
-    def __init__(self, env, gamma, alpha, epsilon_start, epsilon_end, epsilon_decay):
+    def __init__(self, env, gamma, alpha, epsilon_start, epsilon_decay, epsilon_end):
         # Sanity checks related to this particular implementation
         isinstance(env.action_space, spaces.Discrete)
         isinstance(env.observation_space, spaces.Space)
@@ -192,48 +198,44 @@ class QLearningAgent():
             self.epsilon = max(self.epsilon * self.epsilon_decay, self.epsilon_end)
         
         # Update Q-table using the TD target and learning rate
-        new_qvalue = (1 - self.alpha) * self.get_values(state)[action] + self.alpha * td_target
-        self.set_qvalue(state, action, new_qvalue)
+        new_qvalue = (1 - self.alpha) * self.get_qvalues(state)[action] + self.alpha * td_target
+        self.get_qvalues(state)[action] = new_qvalue
 
     def act(self, state):
         # Exploration rate
         epsilon = 0.01 if self.is_greedy else self.epsilon
             
         if np.random.rand() < epsilon:
-            return np.random.choice(self.action_size) # Random action
+            return self.env.action_space.sample()
         else:
-            return np.argmax(self.q_table[state]) # Greedy action
+            return np.argmax(self.get_qvalues(state)) # Greedy action
     
     def get_qvalues(self, state):
         # Flatten state
         state = tuple(spaces.flatten(self.env.observation_space, state))
         
-        # Generate new entry in table if not accessed yet
+        # Generate new entry in table for new states
         if state not in self.q_table:
             self.q_table[state] = np.random.rand(self.env.action_space.n)
             
         return self.q_table[state]
-    
-    def get_qvalue(self, state, action):
-        return 
-        
-    def set_qvalue(self, state, action, v):
-        # TODO
-        
-    def greedy(self, is_greedy=True):
-        self.is_greedy = is_greedy
 
     def get_epsilons(self, n):
         return self.epsilon_start * (self.epsilon_decay**np.arange(n))
     
-    # Reformat a Q-table for readability
-    def render_qtable(q_table, action_names={}, fmt='{}'):
-        # Create DataFrame
-        df = pd.DataFrame(q_table)
-        df.columns = [
-            (action_names[i] if i in action_names else i)
-            for i in range(q_table.shape[1])]
-        df.index.name = 'state'
+    def display_qtable(self, states_fmt=None, actions_fmt=None, values_fmt='{:.2g}'):
+        # Set default formatting functions
+        if states_fmt is None:
+            states_fmt = lambda state: str(state)
+        if actions_fmt is None:
+            actions_fmt = lambda action_i: 'action {}'.format(action_i)
 
-        # Format and render
-        display(df.applymap(fmt.format))
+        # Create DataFrame
+        df = pd.DataFrame(
+            data=self.q_table.values(),
+            index=[states_fmt(spaces.unflatten(self.env.observation_space, t)) for t in self.q_table.keys()],
+            columns=[actions_fmt(a) for a in range(self.env.action_space.n)]
+        ).applymap(values_fmt.format)
+
+        # Render it with Ipython display
+        display(df)
