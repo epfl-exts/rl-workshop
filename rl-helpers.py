@@ -78,7 +78,7 @@ def test_agents(env, agents, n_steps, seed=None):
 
     return rewards_log
 
-def plot_cumulated_rewards(rewards_log, ax=None, subset=None):
+def plot_cumulative_rewards(rewards_log, ax=None, subset=None):
     # Creat figure etc.. if ax none
     create_figure = (ax is None)
     if create_figure:
@@ -93,15 +93,17 @@ def plot_cumulated_rewards(rewards_log, ax=None, subset=None):
         if name in subset:
             # Work with Numpy array
             rewards = np.array(rewards)
+            pickup = (rewards == 1)
+            crashed = (rewards == -1)
 
             # Compute cumulative sum
             cumsum = np.cumsum(rewards)
             idxs = range(1, len(cumsum) + 1)
 
             # Create label with pickup/crash rate
-            label = r'{} (reward: {:.3f}±{:.3f}, pickup: {:.2f}% crash: {:.2f}%)'.format(
+            label = r'{} - reward: {:.3f}±{:.3f}, pickup: {:.2f}% ({}) crash: {:.2f}% ({})'.format(
                 name, np.mean(rewards), np.std(rewards),
-                100*np.mean(rewards == 1), 100*np.mean(rewards == -1))
+                100*pickup.mean(), pickup.sum(), 100*crashed.mean(), crashed.sum())
 
             # Plot results
             ax.step(idxs, cumsum, label=label)
@@ -128,13 +130,16 @@ def plot_rolling_rewards(rewards_log, ax=None, window=None, hline=None, subset=N
             # Work with Numpy array
             rewards = np.array(rewards)
             steps = range(1, len(rewards)+1)
+            pickup = (rewards == 1)
+            crashed = (rewards == -1)
 
             # Set default for window size
             window = int(len(rewards)/10) if window is None else window
 
             # Plot rolling mean
             rolling_mean = pd.Series(rewards).rolling(window).mean()
-            ax.plot(steps, rolling_mean,label=name)
+            label = '{} - pickup: {} crash: {}'.format(name, pickup.sum(), crashed.sum())
+            ax.plot(steps, rolling_mean,label=label)
         
     if hline is not None:
         ax.axhline(hline, label='target value', c='C0', linestyle='--')
@@ -223,19 +228,16 @@ class QLearningAgent():
     def get_epsilons(self, n):
         return self.epsilon_start * (self.epsilon_decay**np.arange(n))
     
-    def display_qtable(self, states_fmt=None, actions_fmt=None, values_fmt='{:.2g}'):
-        # Set default formatting functions
-        if states_fmt is None:
-            states_fmt = lambda state: str(state)
-        if actions_fmt is None:
-            actions_fmt = lambda action_i: 'action {}'.format(action_i)
-
-        # Create DataFrame
-        df = pd.DataFrame(
-            data=self.q_table.values(),
-            index=[states_fmt(spaces.unflatten(self.env.observation_space, t)) for t in self.q_table.keys()],
-            columns=[actions_fmt(a) for a in range(self.env.action_space.n)]
-        ).applymap(values_fmt.format)
-
-        # Render it with Ipython display
-        display(df)
+    def get_qtable(self, values_fmt='{:.2g}', render=True):
+        # Format states and actions
+        unflatten_f = lambda x: spaces.unflatten(self.env.observation_space, x)
+        states = map(self.env.format_state, map(unflatten_f, self.q_table.keys()))
+        actions = map(self.env.format_action, range(self.env.action_space.n))
+        
+        # Create, format and render DataFrame
+        df = pd.DataFrame(self.q_table.values(), list(states), list(actions))
+        df = df.applymap(values_fmt.format)
+        if render:
+            display(df)
+        
+        return df

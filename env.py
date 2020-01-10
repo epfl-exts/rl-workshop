@@ -258,17 +258,21 @@ class DeliveryDrones(Env):
             lines.append(row_sep)
             
         return '\n'.join(lines)
+    
+    def format_action(self, i):
+        return Action(i).name
         
-class TargetQTable(ObservationWrapper):
+class CompassQTable(ObservationWrapper):
     """
-    Observation wrapper for Q-table based algorithms with only
-    the direction of the target as information (left/down/right/up states)
-    Note: Target can be the direction of the nearest packet or associated dropzone
+    Observation wrapper for Q-table based algorithms
+    The state gives campass direction (W/SW/S/SE/E/NE/N/NW)
+    to nearest packet or dropzone to deliver.
     """
     def __init__(self, env):
         # Initialize wrapper with observation space
         super().__init__(env)
-        self.observation_space = spaces.Discrete(4)
+        self.observation_space = spaces.Discrete(8)
+        self.cardinals = ['W', 'SW', 'S', 'SE', 'E', 'NE', 'N', 'NW']
         
     def observation(self, _):
         # Return state for each drone
@@ -287,59 +291,73 @@ class TargetQTable(ObservationWrapper):
             
          # Direction to go to reduce distance to the packet
         target_y, target_x = positions[0][target_idx], positions[1][target_idx]
-        direction = np.argmax([drone_x-target_x, target_y-drone_y, target_x-drone_x, drone_y-target_y])
-        # Arbitrarily use argmax(): direction to any positive value above would work
-        
-        return direction
+        west, south = (drone_x - target_x), (target_y - drone_y)
+        return np.argmax([
+            (west >  0) and (south == 0),
+            (west >  0) and (south >  0),
+            (west == 0) and (south >  0),
+            (west <  0) and (south >  0),
+            (west <  0) and (south == 0),
+            (west <  0) and (south <  0),
+            (west == 0) and (south <  0),
+            (west >  0) and (south <  0)
+        ])
     
-class TargetCollisionQTable(TargetQTable):
+    def format_state(self, s):
+        return self.cardinals[s]
+    
+class LidarCompassQTable(CompassQTable):
+    """
+    Observation wrapper for Q-table based algorithms 
+    The states indicate campass direction and lidar information
+    """
     def __init__(self, env):
         # Initialize wrapper with observation space
         super().__init__(env)
         self.observation_space = spaces.Dict([
-            ('target', spaces.Discrete(4)),
-            ('collision', spaces.MultiBinary(4))
+            ('target', self.observation_space),
+            ('lidar', spaces.MultiBinary(8))
         ])
+        target_cardinality = self.observation_space['target'].n
+        lidar_cardinality = 2**self.observation_space['lidar'].n
+        self.observation_space.n = target_cardinality*lidar_cardinality
+        self.lidar_positions = {
+            'W' : [(0, -1), (0, -2)],
+            'SW': [(1, -1)],
+            'S' : [(1, 0), (2, 0)],
+            'SE': [(1, 1)],
+            'E' : [(0, 1), (0, 2)],
+            'NE': [(-1, 1)],
+            'N' : [(-1, 0), (-2, 0)],
+            'NW': [(-1, -1)]
+        }
         
     def get_drone_state(self, drone, drone_y, drone_x):
-        # Get target direction
-        target = super().get_drone_state(drone, drone_y, drone_y)
-        
-        # TODO: Add collision info
-        collision = [0, 0, 0, 0]
+        # Get target and  direction
+        target = super().get_drone_state(drone, drone_y, drone_x)
+        lidar = [self.sense_obstacles(
+            self.lidar_positions[c], drone_y, drone_x) for c in self.cardinals]
         
         # Use the same ordering as obs. space to avoid any issues
-        return OrderedDict([('target', target), ('collision', collision)])
-        
+        return OrderedDict([('target', target), ('lidar', lidar)])
     
-"""TODO: more complex observation wrapper with collision information
-        # Helper function to convert relative positions to absolute ones
-        def to_absolute(positions):
-            to_abs = lambda p: (drone_y + p[1], drone_x + p[0])
-            return list(map(to_abs, positions))
-
-        # Encode wall information
-        is_wall_below = not self.env.is_inside(position=(position[0]+1, position[1]))
-        is_wall_above = not self.env.is_inside(position=(position[0]-1, position[1]))
-        state.append(2 if is_wall_above else (1 if is_wall_below else 0))
+    # Lidar information
+    def sense_obstacles(self, positions, drone_y=0, drone_x=0):
+        for y, x in positions:
+            y, x = (y + drone_y), (x + drone_x)
+            if not self.env.air.is_inside([y, x]):
+                return 1
+            if isinstance(self.env.air[y, x], Drone):
+                return 1
+        return 0
+    
+    def format_state(self, state):
+        # Find directions with positive lidar signal
+        positive_lidar_signals = np.nonzero(state['lidar'])[0]
+        lidar_cardinals = np.take(self.cardinals, positive_lidar_signals)
         
-        is_wall_right = not self.env.is_inside(position=(position[0], position[1]+1))
-        is_wall_left = not self.env.is_inside(position=(position[0], position[1]-1))
-        state.append(2 if is_wall_right else (1 if is_wall_left else 0))
-        
-        # Encode if moving below/above/left/right or "stay" is "safe"
-        # TODO: merge this with wall information
-        left_positions = to_absolute([(-1, -1), (0, -1), (1, -1), (0, -2)])
-        below_positions = to_absolute([(1, -1), (1, 0), (1, 1), (2, 0)])
-        right_positions = to_absolute([(-1, 1), (0, 1), (1, 1), (0, 2)])
-        above_positions = to_absolute([(-1, -1), (-1, 0), (-1, 1), (-2, 0)])
-        stay_positions = to_absolute([(-1, 0), (0, -1), (1, 0), (0, 1)])
-        state.append(int(self.env.air.get_objects(Drone, left_positions)[0].size > 0))
-        state.append(int(self.env.air.get_objects(Drone, below_positions)[0].size > 0))
-        state.append(int(self.env.air.get_objects(Drone, right_positions)[0].size > 0))
-        state.append(int(self.env.air.get_objects(Drone, above_positions)[0].size > 0))
-        state.append(int(self.env.air.get_objects(Drone, stay_positions)[0].size > 0))
-"""
+        return 'target: {}, lidar: {}'.format(
+            self.cardinals[state['target']], ', '.join(lidar_cardinals))
 
 """
     # TODO: Drones layers
