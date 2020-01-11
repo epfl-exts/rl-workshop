@@ -387,9 +387,12 @@ class GridView(ObservationWrapper):
         # Initialize wrapper with observation space
         super().__init__(env)
         self.observation_space = spaces.Box(
-            low=1, high=self.n_drones, shape=self.env.shape+(3,), dtype=np.int)
+            low=0, high=self.n_drones, shape=self.env.shape+(3,), dtype=np.int)
         
     def observation(self, _):
+        return {index: self.gen_gridview() for index in range(1, self.env.n_drones+1)}
+    
+    def gen_gridview(self):
         # Create grid and get objects
         grid = np.zeros(shape=self.env.shape + (3,))
 
@@ -406,17 +409,37 @@ class GridView(ObservationWrapper):
         # Dropzones
         for dropzone, (y, x) in self.env.ground.get_objects(Dropzone, zip_results=True):
             grid[y, x, 2] = dropzone.index
-            
-        return {index: grid for index in range(1, self.env.n_drones+1)}
+        
+        return grid
     
 class BinaryGridView(GridView):
     """
-    Observation wrapper
+    Observation wrapper: (N, N, 5) binary arrays
+    Similar to GridView for channels 1-3, but in binary
+    Channel 4 marks the position of the player drone with a 1
+    Channel 5 marks the position of the target dropzone with a 1 (if any)
     """
     def __init__(self, env):
-        # TODO
-        pass
+        # Initialize wrapper with observation space
+        super().__init__(env)
+        self.observation_space = spaces.Box(
+            low=0, high=1, shape=self.env.shape+(5,), dtype=np.int)
         
     def observation(self, _):
-        # TODO
-        pass
+        states = {}
+
+        for drone, (y, x) in self.env.air.get_objects(Drone, zip_results=True):
+            # Create binary grid view
+            gridview = np.zeros(shape=self.env.shape + (5,))
+            gridview[np.nonzero(self.gen_gridview())] = 1
+
+            # Set layers with drone position and associated dropzone
+            gridview[y, x, 3] = 1
+            if drone.packet is not None:
+                for dropzone, (dy, dx) in self.env.ground.get_objects(Dropzone, zip_results=True):
+                    if drone.packet.index == dropzone.index:
+                        gridview[dy, dx, 4] = 1
+
+            states[drone.index] = gridview
+            
+        return states

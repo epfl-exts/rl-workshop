@@ -229,9 +229,14 @@ class QLearningAgent():
         return self.epsilon_start * (self.epsilon_decay**np.arange(n))
     
     def get_qtable(self, values_fmt='{:.2g}', render=True):
-        # Format states and actions
-        unflatten_f = lambda x: spaces.unflatten(self.env.observation_space, x)
-        states = map(self.env.format_state, map(unflatten_f, self.q_table.keys()))
+        # Format states
+        if hasattr(self.env, 'format_state'):
+            unflatten_f = lambda x: spaces.unflatten(self.env.observation_space, x)
+            states = map(self.env.format_state, map(unflatten_f, self.q_table.keys()))
+        else:
+            states = ['state {}'.format(i) for i in range(len(self.q_table))]
+            
+        # Format actions
         actions = map(self.env.format_action, range(self.env.action_space.n))
         
         # Create, format and render DataFrame
