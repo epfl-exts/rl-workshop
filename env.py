@@ -390,7 +390,8 @@ class GridView(ObservationWrapper):
             low=0, high=self.n_drones, shape=self.env.shape+(3,), dtype=np.int)
         
     def observation(self, _):
-        return {index: self.gen_gridview() for index in range(1, self.env.n_drones+1)}
+        gridview = self.gen_gridview()
+        return {index: gridview.copy() for index in range(1, self.env.n_drones+1)}
     
     def gen_gridview(self):
         # Create grid and get objects
