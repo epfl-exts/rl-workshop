@@ -5,6 +5,7 @@ import gym.spaces as spaces
 from gym import Env, ObservationWrapper, RewardWrapper
 from gym.utils import seeding
 import os
+import string
 
 class Action(Enum):
     LEFT = 0
@@ -14,26 +15,26 @@ class Action(Enum):
     STAY = 4
 
 class Dropzone():
-    def __init__(self, name):
-        self.name = name
+    def __init__(self, index):
+        self.index = index
         
     def __repr__(self):
-        return 'D{}'.format(self.name)
+        return 'Z{}'.format(self.index)
 
 class Packet():
-    def __init__(self, name):
-        self.name = name
+    def __init__(self, index):
+        self.index = index
         
     def __repr__(self):
-        return 'P{}'.format(self.name)
+        return 'P{}'.format(self.index)
 
 class Drone():
-    def __init__(self, name):
-        self.name = name
+    def __init__(self, index):
+        self.index = index
         self.packet = None
         
     def __repr__(self):
-        return str(self.name)
+        return 'D{}'.format(self.index)
         
 class Grid():
     def __init__(self, shape):
@@ -45,6 +46,15 @@ class Grid():
     
     def __setitem__(self, key, value):
         self.grid[key] = value
+    
+    def get_objects_positions(self, objs):
+        results = []
+        for y in range(self.shape[0]):
+            for x in range(self.shape[1]):
+                for obj in objs:
+                    if self.grid[y, x] == obj:
+                        results.append((obj, (y, x)))
+        return results
     
     def get_objects(self, object_type, positions=None, zip_results=False):
         """Filter objects matching criteria"""
@@ -81,20 +91,18 @@ class DeliveryDrones(Env):
     # OpenAI Gym environment fields
     metadata = {'render.modes': ['ainsi'], 'drone_density': 0.05}
     
-    def __init__(self, drones_names):
+    def __init__(self, n):
         # Define size of the environment
-        self.drones_names = drones_names
-        self.n_drones = len(self.drones_names)
+        self.n_drones = n
         self.side_size = int(np.ceil(np.sqrt(self.n_drones/self.metadata['drone_density'])))
         self.shape = (self.side_size, self.side_size)
         
         # Define spaces
         self.action_space = spaces.Discrete(len(Action))
-        # TODO: implement 6-layers full state representation
         
     def step(self, actions):
         # By default, drones get a reward of zero
-        rewards = {name: 0 for name in actions.keys()}
+        rewards = {index: 0 for index in actions.keys()}
         
         # Do some air navigation for drones based on actions
         new_positions = defaultdict(list)
@@ -106,7 +114,7 @@ class DeliveryDrones(Env):
             self.air[position] = None
             
             # Get action and drone position
-            action = Action.STAY if drone.name not in actions else Action(actions[drone.name])
+            action = Action.STAY if drone.index not in actions else Action(actions[drone.index])
             if action is Action.LEFT:
                 new_position = position[0], position[1]-1
             elif action is Action.DOWN:
@@ -125,7 +133,7 @@ class DeliveryDrones(Env):
             # Drone plans to move outside the grid -> crash
             else:
                 # Drone gets a negative reward and respawns
-                rewards[drone.name] = -1
+                rewards[drone.index] = -1
                 air_respawns.append(drone)
                 
                 # Delivery content is lost with drone crash (!)
@@ -133,12 +141,12 @@ class DeliveryDrones(Env):
                     ground_respawns.append(drone.packet)
                     drone.packet = None
                     
-        # Fruther air navigation for drones that didn't went outside the grid
+        # Further air navigation for drones that didn't went outside the grid
         for position, drones in new_positions.items():
             # Is there a collision?
             if len(drones) > 1:
                 # Drones get a negative reward and have to respawn
-                rewards.update({drone.name: -1 for drone in drones})
+                rewards.update({drone.index: -1 for drone in drones})
                 air_respawns.extend(drones)
                 
                 # Delivery content is lost with drones crash (!)
@@ -169,9 +177,9 @@ class DeliveryDrones(Env):
                 
                 # Did we just delivered a packet?
                 if drone.packet is not None:
-                    if drone.packet.name == dropzone.name:
+                    if drone.packet.index == dropzone.index:
                         # Pay the drone for the delivery
-                        rewards[drone.name] = 1
+                        rewards[drone.index] = 1
                         
                         # Create new delivery
                         ground_respawns.extend([drone.packet, dropzone])
@@ -183,9 +191,9 @@ class DeliveryDrones(Env):
         self._pick_packets_after_respawn(self.air.spawn(air_respawns))
         
         # Episode ends when drone respawns
-        dones = {name: False for name in actions.keys()}
+        dones = {index: False for index in actions.keys()}
         for drone in air_respawns:
-            dones[drone.name] = True
+            dones[drone.index] = True
         
         # Return new states, rewards, done and other infos
         info = {'air_respawns': air_respawns, 'ground_respawns': ground_respawns}
@@ -196,11 +204,16 @@ class DeliveryDrones(Env):
         self.air = Grid(shape=self.shape)
         self.ground = Grid(shape=self.shape)
         
+        # Create
+        # Note: use 1-indexing to simplify state encoding where 0 denotes "absence"
+        self.packets = [Packet(index) for index in range(1, self.n_drones+1)]
+        self.dropzones = [Dropzone(index) for index in range(1, self.n_drones+1)]
+        self.drones = [Drone(index) for index in range(1, self.n_drones+1)]
+        
         # Spawn objects
-        self.ground.spawn([Packet(i) for i in range(self.n_drones)])
-        self.ground.spawn([Dropzone(i) for i in range(self.n_drones)])
-        self._pick_packets_after_respawn(
-            self.air.spawn([Drone(name) for name in self.drones_names]))
+        self.ground.spawn(self.packets)
+        self.ground.spawn(self.dropzones)
+        self._pick_packets_after_respawn(self.air.spawn(self.drones))
         
         return self._get_grids()
         
@@ -220,6 +233,10 @@ class DeliveryDrones(Env):
                 self.ground[y, x] = None
     
     def __str__(self):
+        # Generate aribitrary names for deliveries
+        pacname = lambda index: string.ascii_lowercase[(index-1)%len(string.ascii_lowercase)]
+        dropname = lambda index: string.ascii_uppercase[(index-1)%len(string.ascii_uppercase)]
+
         # Convert air/ground tiles to text
         def tiles_to_char(ground_tile, air_tile):
             # Air is empty
@@ -227,19 +244,18 @@ class DeliveryDrones(Env):
                 if ground_tile is None:
                     return ''
                 elif isinstance(ground_tile, Packet):
-                    return '[{:.1}]'.format(str(ground_tile.name))
+                    return '{}'.format(pacname(ground_tile.index))
                 elif isinstance(ground_tile, Dropzone):
-                    return '({:.1})'.format(str(ground_tile.name))
+                    return '({})'.format(dropname(ground_tile.index))
                 
             # Air has a drone
             elif isinstance(air_tile, Drone):
                 if air_tile.packet is None:
-                    return '{:.1}'.format(str(air_tile.name))
+                    return '{}'.format(air_tile.index)
                 else:
-                    return '{:.1}{:.1}{:.1}'.format(
-                        str(air_tile.name),
-                        str(air_tile.packet.name),
-                        str(air_tile.name))
+                    return '{}<{}'.format(
+                        air_tile.index,
+                        pacname(air_tile.packet.index))
             return '?'
                 
         grid_char = np.vectorize(tiles_to_char)(self.ground.grid, self.air.grid)
@@ -277,7 +293,7 @@ class CompassQTable(ObservationWrapper):
     def observation(self, _):
         # Return state for each drone
         return {
-            drone.name: self.get_drone_state(drone, *position)
+            drone.index: self.get_drone_state(drone, *position)
             for drone, position in self.env.air.get_objects(Drone, zip_results=True)}
         
     def get_drone_state(self, drone, drone_y, drone_x):        
@@ -287,7 +303,7 @@ class CompassQTable(ObservationWrapper):
             l1_distances = np.abs(positions[0] - drone_y) + np.abs(positions[1] - drone_x)
             target_idx = l1_distances.argmin() # Index of the nearest packet
         else:
-            target_idx = [d.name for d in targets].index(drone.packet.name)
+            target_idx = [d.index for d in targets].index(drone.packet.index)
             
          # Direction to go to reduce distance to the packet
         target_y, target_x = positions[0][target_idx], positions[1][target_idx]
@@ -359,22 +375,48 @@ class LidarCompassQTable(CompassQTable):
         return 'target: {}, lidar: {}'.format(
             self.cardinals[state['target']], ', '.join(lidar_cardinals))
 
-"""
-    # TODO: Drones layers
-    my_drone_layer = np.zeros(shape=self.shape)
-    other_drones_layer = np.zeros(shape=self.shape)
+class GridView(ObservationWrapper):
+    """
+    Observation wrapper: (N, N, 3) numerical arrays with location of
+    (1) drones      marked with    drone index 1..i / 0 otherwise
+    (2) packets     marked with delivery index 1..i / 0 otherwise
+    (3) dropzones   marked with delivery index 1..i / 0 otherwise
+    Where N is the size of the environment grid, i the number of drones
+    """
+    def __init__(self, env):
+        # Initialize wrapper with observation space
+        super().__init__(env)
+        self.observation_space = spaces.Box(
+            low=1, high=self.n_drones, shape=self.env.shape+(3,), dtype=np.int)
+        
+    def observation(self, _):
+        # Create grid and get objects
+        grid = np.zeros(shape=self.env.shape + (3,))
 
-    # TODO: Packets layers
-    my_packet_layer = np.zeros(shape=self.shape)
-    other_packets_layer = np.zeros(shape=self.shape)
+        # Drones (and their packets)
+        for drone, (y, x) in self.env.air.get_objects(Drone, zip_results=True):
+            grid[y, x, 0] = drone.index
+            if drone.packet is not None:
+                grid[y, x, 1] = drone.packet.index
 
-    # TODO: Dropzones layers
-    my_dropzone_layer = np.zeros(shape=self.shape)
-    other_dropzones_layer = np.zeros(shape=self.shape)
+        # Packets
+        for packet, (y, x) in self.env.ground.get_objects(Packet, zip_results=True):
+            grid[y, x, 1] = packet.index
 
-    return np.stack([
-        my_drone_layer, other_drones_layer,
-        my_packet_layer, other_packets_layer,
-        my_dropzone_layer, other_dropzones_layer
-    ], axis=-1)
-"""
+        # Dropzones
+        for dropzone, (y, x) in self.env.ground.get_objects(Dropzone, zip_results=True):
+            grid[y, x, 2] = dropzone.index
+            
+        return {index: grid for index in range(1, self.env.n_drones+1)}
+    
+class BinaryGridView(GridView):
+    """
+    Observation wrapper
+    """
+    def __init__(self, env):
+        # TODO
+        pass
+        
+    def observation(self, _):
+        # TODO
+        pass

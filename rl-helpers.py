@@ -24,7 +24,7 @@ class MultiAgentTrainer():
         self.env, self.agents, self.seed = env, agents, seed
         
         # Create log of rewards and reset agents
-        self.rewards_log = {name: [] for name in self.agents.keys()}
+        self.rewards_log = {key: [] for key in self.agents.keys()}
         self.reset()
         
     def reset(self):
@@ -33,9 +33,9 @@ class MultiAgentTrainer():
             set_seed(self.env, self.seed)
         
         # Reset agents and clear log of rewards
-        for name, agent in self.agents.items():
+        for key, agent in self.agents.items():
             agent.reset()
-            self.rewards_log[name].clear()
+            self.rewards_log[key].clear()
 
     def train(self, n_steps):
         # Reset env. and get initial observations
@@ -43,15 +43,15 @@ class MultiAgentTrainer():
         
         for i in tqdm_notebook(range(n_steps), 'Training agents'):
             # Select actions based on current states
-            actions = {name: agent.act(states[name]) for name, agent in self.agents.items()}
+            actions = {key: agent.act(states[key]) for key, agent in self.agents.items()}
 
             # Perform the selected action
             next_states, rewards, dones, _ = self.env.step(actions)
 
             # Learn from experience
-            for name, agent in self.agents.items():
-                agent.learn(states[name], actions[name], rewards[name], next_states[name], dones[name])
-                self.rewards_log[name].append(rewards[name])
+            for key, agent in self.agents.items():
+                agent.learn(states[key], actions[key], rewards[key], next_states[key], dones[key])
+                self.rewards_log[key].append(rewards[key])
             states = next_states
     
 def test_agents(env, agents, n_steps, seed=None):
@@ -65,14 +65,14 @@ def test_agents(env, agents, n_steps, seed=None):
     
     for _ in tqdm_notebook(range(n_steps), 'Testing agents'):
         # Select actions based on current states
-        actions = {name: agent.act(states[name]) for name, agent in agents.items()}
+        actions = {key: agent.act(states[key]) for key, agent in agents.items()}
         
         # Perform the selected action
         next_states, rewards, dones, _ = env.step(actions)
         
         # Save rewards
-        for name, reward in rewards.items():
-            rewards_log[name].append(reward)
+        for key, reward in rewards.items():
+            rewards_log[key].append(reward)
         
         states = next_states
 
@@ -89,8 +89,8 @@ def plot_cumulative_rewards(rewards_log, ax=None, subset=None):
     subset = rewards_log.keys() if subset is None else subset
     
     # Plot rewards
-    for name, rewards in rewards_log.items():
-        if name in subset:
+    for key, rewards in rewards_log.items():
+        if key in subset:
             # Work with Numpy array
             rewards = np.array(rewards)
             pickup = (rewards == 1)
@@ -101,8 +101,8 @@ def plot_cumulative_rewards(rewards_log, ax=None, subset=None):
             idxs = range(1, len(cumsum) + 1)
 
             # Create label with pickup/crash rate
-            label = r'{} - reward: {:.3f}±{:.3f}, pickup: {:.2f}% ({}) crash: {:.2f}% ({})'.format(
-                name, np.mean(rewards), np.std(rewards),
+            label = r'Drone {} - reward: {:.3f}±{:.3f}, pickup: {:.2f}% ({}) crash: {:.2f}% ({})'.format(
+                key, np.mean(rewards), np.std(rewards),
                 100*pickup.mean(), pickup.sum(), 100*crashed.mean(), crashed.sum())
 
             # Plot results
@@ -125,8 +125,8 @@ def plot_rolling_rewards(rewards_log, ax=None, window=None, hline=None, subset=N
     # Define which entry to plot
     subset = rewards_log.keys() if subset is None else subset
         
-    for name, rewards in rewards_log.items():
-        if name in subset:
+    for key, rewards in rewards_log.items():
+        if key in subset:
             # Work with Numpy array
             rewards = np.array(rewards)
             steps = range(1, len(rewards)+1)
@@ -138,7 +138,7 @@ def plot_rolling_rewards(rewards_log, ax=None, window=None, hline=None, subset=N
 
             # Plot rolling mean
             rolling_mean = pd.Series(rewards).rolling(window).mean()
-            label = '{} - pickup: {} crash: {}'.format(name, pickup.sum(), crashed.sum())
+            label = 'Drone {} - pickup: {} crash: {}'.format(key, pickup.sum(), crashed.sum())
             ax.plot(steps, rolling_mean,label=label)
         
     if hline is not None:
