@@ -416,3 +416,71 @@ class DQNAgent(ReplayMemoryAgent):
 
         # Improve our Q-network
         super().learn(state, action, reward, next_state, done)
+        
+class MyDQNAgent(DQNAgent):
+    """DQN Agent with custom Q-network"""
+    def __init__(self, *args, conv_sizes=[32, 64, 64], fc_sizes=[128], **kwargs):
+        # Initialize agent
+        super().__init__(*args, **kwargs)
+        
+        # Save other parameters
+        self.conv_sizes = conv_sizes
+        self.fc_sizes = fc_sizes
+        
+    def create_qnetwork(self):
+        # Create network
+        network = MyQNetwork(self.env, self.conv_sizes, self.fc_sizes)
+
+        # Move to GPU if available
+        if torch.cuda.is_available():
+            network.cuda()
+
+        # Create optimizer
+        optimizer = optim.Adam(network.parameters())
+        
+        return network, optimizer
+    
+class MyQNetwork(nn.Module):
+    def __init__(self, env, conv_sizes, fc_sizes):
+        # Initialize module
+        super().__init__()
+        
+        # Get input size
+        grisize, grisize, depth = env.observation_space.shape
+
+        # Create convolutional layers
+        self.conv = nn.Sequential()
+        for i, kernels in enumerate(conv_sizes):
+            # Create layer
+            in_channels = depth if i == 0 else conv_sizes[i-1]
+            out_channels = conv_sizes[i]
+            layer = nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=1, padding=1)
+
+            # Add layer + activation
+            self.conv.add_module('conv2d_{}'.format(i+1), layer)
+            self.conv.add_module('ReLU_{}'.format(i+1), nn.ReLU())
+
+        # Add classification layer
+        self.fc = nn.Sequential()
+        self.fc.add_module('flatten', nn.Flatten())
+
+        conv_output = self.conv(torch.ones([1, depth, grisize, grisize]))
+        batch_size, flatsize  = self.fc(conv_output).shape
+        fc_sizes = fc_sizes + [env.action_space.n]
+        for i, hidden_size in enumerate(fc_sizes):
+            # Create layer
+            in_features = flatsize if i == 0 else fc_sizes[i-1]
+            out_features = fc_sizes[i]
+            layer = nn.Linear(in_features, out_features)
+                
+            # Add layer + activation
+            if i > 0:
+                self.fc.add_module('ReLU_{}'.format(i+1), nn.ReLU())
+            self.fc.add_module('fc_{}'.format(i+1), layer)
+        
+        self.network = nn.Sequential(self.conv, self.fc)
+        
+    def forward(self, states):
+        # Forward flattened state
+        batch_states = np.array(states).transpose(0, 3, 1, 2)
+        return self.network(Tensor(batch_states))
