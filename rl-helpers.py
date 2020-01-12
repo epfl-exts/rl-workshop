@@ -7,6 +7,9 @@ import pandas as pd
 import numpy as np
 import random
 import torch
+import torch.nn as nn
+import torch.optim as optim
+from torch import Tensor
 import gym.spaces as spaces
 
 def set_seed(env, seed):
@@ -246,3 +249,83 @@ class QLearningAgent():
             display(df)
         
         return df
+    
+class DenseNNAgent():
+    """Agent that uses a Dense NN to approximate the Q-function"""
+    def __init__(self, env, gamma, epsilon_start, epsilon_decay, epsilon_end, hidden_size):
+        # Action space and observation spaces should by OpenAI gym spaces
+        isinstance(env.action_space, spaces.Discrete)
+        isinstance(env.observation_space, spaces.Space)
+        
+        # Save parameters
+        self.env = env
+        self.gamma = gamma # Discount factor
+        self.epsilon_start = epsilon_start # Exploration rate
+        self.epsilon_decay = epsilon_decay # Decay after each episode
+        self.epsilon_end = epsilon_end # Minimum value
+        self.is_greedy = False # Does the agent behave greedily?
+        
+        self.input_flatsize = spaces.flatdim(self.env.observation_space)
+        self.hidden_size = hidden_size # Number of hidden layers in the network
+        self.output_flatsize = self.env.action_space.n
+        
+    def reset(self):
+        # For now: the networks to compute the TD-target and act are identical
+        self.network, self.optimizer = self.create_q_network()
+        self.target_network = self.network
+        
+        # Reset exploration rate
+        self.epsilon = self.epsilon_start
+        self.epsilons = []
+
+    def create_q_network(self):
+        # Create network
+        network = nn.Sequential(
+            nn.Linear(self.input_flatsize, self.hidden_size),
+            nn.Tanh(),
+            nn.Linear(self.hidden_size, self.output_flatsize))
+        
+        # Move to GPU if available
+        if torch.cuda.is_available():
+            self.network.cuda()
+            
+        # Create optimizer
+        optimizer = optim.Adam(network.parameters())
+        
+        return network, optimizer
+
+    def act(self, state):
+        # Exploration rate
+        epsilon = 0.01 if self.is_greedy else self.epsilon
+        
+        if np.random.rand() < epsilon:
+            return self.env.action_space.sample()
+        else:
+            q_values = self.network(Tensor(self.flatten_state(state)))
+            return q_values.argmax().item() # Greedy action
+
+    def learn(self, state, action, reward, next_state, done):
+        # Epsilon decay
+        if done:
+            self.epsilons.append(self.epsilon)
+            self.epsilon = max(self.epsilon * self.epsilon_decay, self.epsilon_end)
+            
+        # Q-value for current state given current action
+        q_values = self.network(Tensor(self.flatten_state(state)))
+        q_value = q_values[action]
+
+        # Compute the TD target
+        next_q_values = self.target_network(Tensor(self.flatten_state(next_state)))
+        next_q_value = next_q_values.max()
+        td_target = reward + self.gamma * next_q_value * (1 - done)
+        
+        # Optimize quadratic loss
+        loss = (q_value - td_target.detach()).pow(2)
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+        
+        return loss
+        
+    def flatten_state(self, state):
+        return spaces.flatten(self.env.observation_space, state)
