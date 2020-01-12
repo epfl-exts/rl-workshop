@@ -250,9 +250,9 @@ class QLearningAgent():
         
         return df
     
-class DenseNNAgent():
-    """Agent that uses a Dense NN to approximate the Q-function"""
-    def __init__(self, env, gamma, epsilon_start, epsilon_decay, epsilon_end, hidden_size):
+class NeuralNetworkAgent():
+    """Agent that uses a Neural Network to approximate the Q-function"""
+    def __init__(self, env, gamma, epsilon_start, epsilon_decay, epsilon_end):
         # Action space and observation spaces should by OpenAI gym spaces
         isinstance(env.action_space, spaces.Discrete)
         isinstance(env.observation_space, spaces.Space)
@@ -265,34 +265,28 @@ class DenseNNAgent():
         self.epsilon_end = epsilon_end # Minimum value
         self.is_greedy = False # Does the agent behave greedily?
         
-        self.input_flatsize = spaces.flatdim(self.env.observation_space)
-        self.hidden_size = hidden_size # Number of hidden layers in the network
-        self.output_flatsize = self.env.action_space.n
+    """Override this method to change the network and optimizer"""
+    def create_qnetwork(self):
+        # Create network
+        network = DenseQNetwork(self.env, hidden_size=128)
+
+        # Move to GPU if available
+        if torch.cuda.is_available():
+            network.cuda()
+
+        # Create optimizer
+        optimizer = optim.Adam(network.parameters())
+        
+        return network, optimizer
         
     def reset(self):
         # For now: the networks to compute the TD-target and act are identical
-        self.network, self.optimizer = self.create_q_network()
+        self.network, self.optimizer = self.create_qnetwork()
         self.target_network = self.network
         
         # Reset exploration rate
         self.epsilon = self.epsilon_start
         self.epsilons = []
-
-    def create_q_network(self):
-        # Create network
-        network = nn.Sequential(
-            nn.Linear(self.input_flatsize, self.hidden_size),
-            nn.Tanh(),
-            nn.Linear(self.hidden_size, self.output_flatsize))
-        
-        # Move to GPU if available
-        if torch.cuda.is_available():
-            self.network.cuda()
-            
-        # Create optimizer
-        optimizer = optim.Adam(network.parameters())
-        
-        return network, optimizer
 
     def act(self, state):
         # Exploration rate
@@ -301,7 +295,7 @@ class DenseNNAgent():
         if np.random.rand() < epsilon:
             return self.env.action_space.sample()
         else:
-            q_values = self.network(Tensor(self.flatten_state(state)))
+            q_values = self.network(state)
             return q_values.argmax().item() # Greedy action
 
     def learn(self, state, action, reward, next_state, done):
@@ -311,11 +305,11 @@ class DenseNNAgent():
             self.epsilon = max(self.epsilon * self.epsilon_decay, self.epsilon_end)
             
         # Q-value for current state given current action
-        q_values = self.network(Tensor(self.flatten_state(state)))
+        q_values = self.network(state)
         q_value = q_values[action]
 
         # Compute the TD target
-        next_q_values = self.target_network(Tensor(self.flatten_state(next_state)))
+        next_q_values = self.target_network(next_state)
         next_q_value = next_q_values.max()
         td_target = reward + self.gamma * next_q_value * (1 - done)
         
@@ -326,6 +320,62 @@ class DenseNNAgent():
         self.optimizer.step()
         
         return loss
+    
+class DenseQNetwork(nn.Module):
+    def __init__(self, env, hidden_size):
+        # Initialize module
+        super().__init__()
+        self.env = env
         
-    def flatten_state(self, state):
-        return spaces.flatten(self.env.observation_space, state)
+        # Define network
+        self.input_size = spaces.flatdim(self.env.observation_space)
+        self.hidden_size = hidden_size
+        self.output_size = self.env.action_space.n
+        self.network = nn.Sequential(
+            nn.Linear(self.input_size, self.hidden_size),
+            nn.Tanh(),
+            nn.Linear(self.hidden_size, self.output_size))
+        
+    def forward(self, state):
+        # Forward flattened state
+        state_flattened = spaces.flatten(self.env.observation_space, state)
+        return self.network(Tensor(state_flattened))
+    
+class ReplayMemoryAgent(NeuralNetworkAgent):
+    """Neural network agent with a replay memory"""
+    def __init__(self, env, gamma, epsilon_start, epsilon_decay, epsilon_end, memory_size, batch_size):
+        # Initialize agent
+        super().__init__(self, env, gamma, epsilon_start, epsilon_decay, epsilon_end)
+        
+        # Save batch + memory size
+        self.memory_size = memory_size
+        self.batch_size = batch_size
+        
+    def reset(self):
+        self.memory = deque(maxlen=self.memory_size) # Create replay memory
+        super().reset() # Create Q-network and optimizer
+
+    def learn(self, state, action, reward, next_state, done):
+        # Memorize experience
+        self.memory.append((state, action, reward, next_state, done))
+
+        # Train when we have enough experiences in the replay memory
+        if len(self.memory) > self.batch_size:
+            # Sample batch of experience
+            batch = random.sample(self.memory, self.batch_size)
+            state, action, reward, next_state, done = zip(*batch)
+
+            # Q-value for current state given current action
+            q_values = self.network(Tensor(self.flatten_state(state)))
+            q_value = q_values.gather(1, LongTensor(action).unsqueeze(1)).squeeze(1)
+
+            # Compute the TD target
+            next_q_values = self.target_network(Tensor(next_state))
+            next_q_value = next_q_values.max(1)[0]
+            td_target = Tensor(reward) + self.gamma * next_q_value * (1 - Tensor(done))
+
+            # Optimize quadratic loss
+            loss = (q_value - td_target.detach()).pow(2).mean()
+            self.optimizer.zero_grad()
+            loss.backward()
+            self.optimizer.step()
