@@ -9,8 +9,10 @@ import random
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch import Tensor
+from torch import Tensor, LongTensor
 import gym.spaces as spaces
+import random
+from collections import deque
 
 def set_seed(env, seed):
     """Helper function to set the seeds when needed"""
@@ -295,7 +297,7 @@ class NeuralNetworkAgent():
         if np.random.rand() < epsilon:
             return self.env.action_space.sample()
         else:
-            q_values = self.network(state)
+            q_values = self.network([state])[0]
             return q_values.argmax().item() # Greedy action
 
     def learn(self, state, action, reward, next_state, done):
@@ -305,11 +307,11 @@ class NeuralNetworkAgent():
             self.epsilon = max(self.epsilon * self.epsilon_decay, self.epsilon_end)
             
         # Q-value for current state given current action
-        q_values = self.network(state)
+        q_values = self.network([state])[0]
         q_value = q_values[action]
 
         # Compute the TD target
-        next_q_values = self.target_network(next_state)
+        next_q_values = self.target_network([next_state])[0]
         next_q_value = next_q_values.max()
         td_target = reward + self.gamma * next_q_value * (1 - done)
         
@@ -333,29 +335,37 @@ class DenseQNetwork(nn.Module):
         self.output_size = self.env.action_space.n
         self.network = nn.Sequential(
             nn.Linear(self.input_size, self.hidden_size),
-            nn.Tanh(),
+            nn.ReLU(),
             nn.Linear(self.hidden_size, self.output_size))
         
-    def forward(self, state):
+    def forward(self, states):
         # Forward flattened state
-        state_flattened = spaces.flatten(self.env.observation_space, state)
-        return self.network(Tensor(state_flattened))
+        states_flattened = [spaces.flatten(self.env.observation_space, s) for s in states]
+        return self.network(Tensor(states_flattened))
     
 class ReplayMemoryAgent(NeuralNetworkAgent):
     """Neural network agent with a replay memory"""
     def __init__(self, env, gamma, epsilon_start, epsilon_decay, epsilon_end, memory_size, batch_size):
         # Initialize agent
-        super().__init__(self, env, gamma, epsilon_start, epsilon_decay, epsilon_end)
+        super().__init__(env, gamma, epsilon_start, epsilon_decay, epsilon_end)
         
-        # Save batch + memory size
+        # Save memory & batch size
         self.memory_size = memory_size
         self.batch_size = batch_size
         
     def reset(self):
-        self.memory = deque(maxlen=self.memory_size) # Create replay memory
-        super().reset() # Create Q-network and optimizer
+        # Reset agent
+        super().reset()
+        
+        # Create new replay memory
+        self.memory = deque(maxlen=self.memory_size)
 
     def learn(self, state, action, reward, next_state, done):
+        # Epsilon decay
+        if done:
+            self.epsilons.append(self.epsilon)
+            self.epsilon = max(self.epsilon * self.epsilon_decay, self.epsilon_end)
+            
         # Memorize experience
         self.memory.append((state, action, reward, next_state, done))
 
@@ -366,11 +376,11 @@ class ReplayMemoryAgent(NeuralNetworkAgent):
             state, action, reward, next_state, done = zip(*batch)
 
             # Q-value for current state given current action
-            q_values = self.network(Tensor(self.flatten_state(state)))
+            q_values = self.network(state)
             q_value = q_values.gather(1, LongTensor(action).unsqueeze(1)).squeeze(1)
 
             # Compute the TD target
-            next_q_values = self.target_network(Tensor(next_state))
+            next_q_values = self.target_network(next_state)
             next_q_value = next_q_values.max(1)[0]
             td_target = Tensor(reward) + self.gamma * next_q_value * (1 - Tensor(done))
 
