@@ -389,3 +389,30 @@ class ReplayMemoryAgent(NeuralNetworkAgent):
             self.optimizer.zero_grad()
             loss.backward()
             self.optimizer.step()
+            
+class DQNAgent(ReplayMemoryAgent):
+    def __init__(self, env, gamma, epsilon_start, epsilon_decay, epsilon_end, memory_size, batch_size, target_update_interval):
+        # Initialize agent
+        super().__init__(env, gamma, epsilon_start, epsilon_decay, epsilon_end, memory_size, batch_size)
+        
+        # Set the update interval for the target network
+        self.target_update_interval = target_update_interval
+
+    def reset(self):
+        # Reset agent
+        super().reset()
+        
+        # Create target network with episode counter
+        self.target_network, _ = self.create_qnetwork()
+        self.num_episode = 0
+
+    def learn(self, state, action, reward, next_state, done):
+        if done: # Increment episode counter at the end of each episode
+            self.num_episode += 1
+            
+        # Update target network with current one
+        if self.num_episode % self.target_update_interval == 0:
+            self.target_network.load_state_dict(self.network.state_dict())
+
+        # Improve our Q-network
+        super().learn(state, action, reward, next_state, done)
