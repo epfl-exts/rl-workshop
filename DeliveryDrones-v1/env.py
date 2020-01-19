@@ -152,7 +152,7 @@ class DeliveryDrones(Env):
                 drone.charge = min(100, drone.charge+20) # charge
                 rewards[drone.index] = -0.01 # cost of charging
             else:
-                drone.charge -= 10 # discharge
+                drone.charge -= 5 # discharge
                 # Without charge left, drone crashes
                 if drone.charge <= 0:
                     air_respawns.append(drone)
@@ -401,31 +401,29 @@ class LidarCompassQTable(CompassQTable):
         # Initialize wrapper with observation space
         super().__init__(env)
         self.observation_space = spaces.Dict([
-            ('target', self.observation_space),
+            ('target_dir', spaces.Discrete(8)),
             ('lidar', spaces.MultiBinary(8))
         ])
-        target_cardinality = self.observation_space['target'].n
-        lidar_cardinality = 2**self.observation_space['lidar'].n
-        self.observation_space.n = target_cardinality*lidar_cardinality
         self.lidar_positions = {
-            'W' : [(0, -1), (0, -2)],
-            'SW': [(1, -1)],
-            'S' : [(1, 0), (2, 0)],
-            'SE': [(1, 1)],
-            'E' : [(0, 1), (0, 2)],
-            'NE': [(-1, 1)],
-            'N' : [(-1, 0), (-2, 0)],
-            'NW': [(-1, -1)]
+            '←' : [(0, -1), (0, -2)],
+            '↙': [(1, -1)],
+            '↓' : [(1, 0), (2, 0)],
+            '↘': [(1, 1)],
+            '→' : [(0, 1), (0, 2)],
+            '↗': [(-1, 1)],
+            '↑' : [(-1, 0), (-2, 0)],
+            '↖': [(-1, -1)]
         }
         
     def get_drone_state(self, drone, drone_y, drone_x):
-        # Get target and  direction
-        target = super().get_drone_state(drone, drone_y, drone_x)
-        lidar = [self.sense_obstacles(
-            self.lidar_positions[c], drone_y, drone_x) for c in self.cardinals]
+        # Get target and lidar directions
+        target_dir = super().get_drone_state(drone, drone_y, drone_x)
+        lidar = [
+            self.sense_obstacles(self.lidar_positions[c], drone_y, drone_x)
+            for c in self.cardinals if c in self.lidar_positions.keys()]
         
         # Use the same ordering as obs. space to avoid any issues
-        return OrderedDict([('target', target), ('lidar', lidar)])
+        return OrderedDict([('target_dir', target_dir), ('lidar', lidar)])
     
     # Lidar information
     def sense_obstacles(self, positions, drone_y=0, drone_x=0):
@@ -443,21 +441,73 @@ class LidarCompassQTable(CompassQTable):
         lidar_cardinals = np.take(self.cardinals, positive_lidar_signals)
         
         return 'target: {}, lidar: {}'.format(
-            self.cardinals[state['target']], ', '.join(lidar_cardinals))
-
-class GridView(ObservationWrapper):
+            self.cardinals[state['target_dir']], ', '.join(lidar_cardinals))
+    
+class LidarCompassChargeQTable(LidarCompassQTable):
     """
-    Observation wrapper: (N, N, 3) numerical arrays with location of
-    (1) drones      marked with    drone index 1..i / 0 otherwise
-    (2) packets     marked with delivery index 1..i / 0 otherwise
-    (3) dropzones   marked with delivery index 1..i / 0 otherwise
+    Observation wrapper for Q-table based algorithms 
+    Adding campass direction (W/SW/S/SE/E/NE/N/NW/X*)
+    to nearest charge station and current charge level (quartile-index)
+    *X means "on charging station"
+    """
+    def __init__(self, env):
+        # Initialize wrapper with observation space
+        super().__init__(env)
+        self.observation_space = spaces.Dict([
+            ('target_dir', spaces.Discrete(8)),
+            ('station_dir', spaces.Discrete(9)),
+            ('charge_level', spaces.Discrete(4)),
+            ('lidar', spaces.MultiBinary(8))
+        ])
+        self.cardinals.append('X')
+        
+    def get_drone_state(self, drone, drone_y, drone_x):
+        # Get target and lidar direction
+        lidar_target = super().get_drone_state(drone, drone_y, drone_x)
+        
+        # Get direction to nearest charging station
+        stations, positions = self.env.ground.get_objects(Station)
+        l1_distances = np.abs(positions[0] - drone_y) + np.abs(positions[1] - drone_x)
+        if l1_distances.min() == 0:
+            station_dir = self.cardinals.index('X')
+        else:
+            station_idx = l1_distances.argmin() # Index of the nearest station
+            station_y, station_x = positions[0][station_idx], positions[1][station_idx]
+            station_dir = self.compass_direction(drone_y, drone_x, station_y, station_x)
+            
+        # Get charge level
+        quartiles = np.array([25, 50, 75])
+        larger_quartiles = np.nonzero(drone.charge < quartiles)[0]
+        charge_level = len(quartiles) if len(larger_quartiles) == 0 else larger_quartiles[0]
+        
+        # Use the same ordering as obs. space to avoid any issues
+        return OrderedDict([
+            ('target_dir', lidar_target['target_dir']),
+            ('station_dir', station_dir),
+            ('charge_level', charge_level),
+            ('lidar', lidar_target['lidar'])
+        ])
+    
+    def format_state(self, s):
+        lidar_target_info = super().format_state(s)
+        charge_info = 'station: {}, charge: {}'.format(self.cardinals[s['station_dir']], s['charge_level'])
+        return '{}, {}'.format(lidar_target_info, charge_info)
+
+class GlobalGridView(ObservationWrapper):
+    """
+    Observation wrapper: (N, N, 5) numerical arrays with location of
+    (1) drones         marked with    drone index 1..i / 0 otherwise
+    (2) packets        marked with delivery index 1..i / 0 otherwise
+    (3) dropzones      marked with delivery index 1..i / 0 otherwise
+    (4) stations       marked with                   1 / 0 otherwise
+    (5) drones charge  marked with   charge level 0..1 / 0 otherwise
     Where N is the size of the environment grid, i the number of drones
     """
     def __init__(self, env):
         # Initialize wrapper with observation space
         super().__init__(env)
         self.observation_space = spaces.Box(
-            low=0, high=self.n_drones, shape=self.env.shape+(3,), dtype=np.int)
+            low=0, high=self.n_drones, shape=self.env.shape+(5,), dtype=np.int)
         
     def observation(self, _):
         gridview = self.gen_gridview()
@@ -465,13 +515,14 @@ class GridView(ObservationWrapper):
     
     def gen_gridview(self):
         # Create grid and get objects
-        grid = np.zeros(shape=self.env.shape + (3,))
+        grid = np.zeros(shape=self.env.shape + (5,))
 
-        # Drones (and their packets)
+        # Drones (and their packets) + charge
         for drone, (y, x) in self.env.air.get_objects(Drone, zip_results=True):
             grid[y, x, 0] = drone.index
             if drone.packet is not None:
                 grid[y, x, 1] = drone.packet.index
+            grid[y, x, 4] = drone.charge / 100
 
         # Packets
         for packet, (y, x) in self.env.ground.get_objects(Packet, zip_results=True):
@@ -480,36 +531,45 @@ class GridView(ObservationWrapper):
         # Dropzones
         for dropzone, (y, x) in self.env.ground.get_objects(Dropzone, zip_results=True):
             grid[y, x, 2] = dropzone.index
+            
+        # Stations
+        grid[self.env.ground.get_objects(Station)[1] + (3,)] = 1
         
         return grid
     
-class BinaryGridView(GridView):
+class PlayerGridView(GlobalGridView):
     """
-    Observation wrapper: (N, N, 5) binary arrays
-    Similar to GridView for channels 1-3, but in binary
-    Channel 4 marks the position of the player drone with a 1
-    Channel 5 marks the position of the target dropzone with a 1 (if any)
+    Observation wrapper: (N, N, 7) arrays
+    Similar to GlobalGridView with channels 1-3 made binary
+    Channel 6 marks the position of the player's drone with a 1
+    Channel 7 marks the position of the target dropzone with a 1 (if any)
     """
     def __init__(self, env):
         # Initialize wrapper with observation space
         super().__init__(env)
         self.observation_space = spaces.Box(
-            low=0, high=1, shape=self.env.shape+(5,), dtype=np.int)
+            low=0, high=1, shape=self.env.shape+(7,), dtype=np.float)
         
     def observation(self, _):
         states = {}
 
+        # Get global gridview
+        global_gridview = self.gen_gridview()
+        
         for drone, (y, x) in self.env.air.get_objects(Drone, zip_results=True):
-            # Create binary grid view
-            gridview = np.zeros(shape=self.env.shape + (5,))
-            gridview[np.nonzero(self.gen_gridview())] = 1
+            # Channels 1-3
+            gridview = np.zeros(shape=self.env.shape + (7,))
+            gridview[np.nonzero(global_gridview[:, :, :3])] = 1
+            
+            # Channels 4-5
+            gridview[:, :, 3:5] = global_gridview[:, :, 3:5]
 
             # Set layers with drone position and associated dropzone
-            gridview[y, x, 3] = 1
+            gridview[y, x, 5] = 1
             if drone.packet is not None:
                 for dropzone, (dy, dx) in self.env.ground.get_objects(Dropzone, zip_results=True):
                     if drone.packet.index == dropzone.index:
-                        gridview[dy, dx, 4] = 1
+                        gridview[dy, dx, 6] = 1
 
             states[drone.index] = gridview
             
