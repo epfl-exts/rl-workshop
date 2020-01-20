@@ -507,7 +507,7 @@ class GlobalGridView(ObservationWrapper):
         # Initialize wrapper with observation space
         super().__init__(env)
         self.observation_space = spaces.Box(
-            low=0, high=self.n_drones, shape=self.env.shape+(5,), dtype=np.int)
+            low=0, high=self.n_drones, shape=self.env.shape+(5,), dtype=np.float)
         
     def observation(self, _):
         gridview = self.gen_gridview()
