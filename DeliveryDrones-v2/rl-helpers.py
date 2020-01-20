@@ -1,7 +1,7 @@
 from collections import defaultdict, Counter
 import matplotlib.pyplot as plt
 import seaborn as sns
-from tqdm import tqdm_notebook
+from tqdm.notebook import tqdm
 import pandas as pd
 import numpy as np
 import random
@@ -45,7 +45,7 @@ class MultiAgentTrainer():
         # Reset env. and get initial observations
         states = self.env.reset()
         
-        for i in tqdm_notebook(range(n_steps), 'Training agents'):
+        for i in tqdm(range(n_steps), 'Training agents'):
             # Select actions based on current states
             actions = {key: agent.act(states[key]) for key, agent in self.agents.items()}
 
@@ -67,7 +67,7 @@ def test_agents(env, agents, n_steps, seed=None):
     states = env.reset()
     rewards_log = defaultdict(list)
     
-    for _ in tqdm_notebook(range(n_steps), 'Testing agents'):
+    for _ in tqdm(range(n_steps), 'Testing agents'):
         # Select actions based on current states
         actions = {key: agent.act(states[key]) for key, agent in agents.items()}
         
@@ -474,7 +474,7 @@ class DQNAgent():
             loss.backward()
             self.optimizer.step()
             
-    def inspect_memory(self, top_n=10):
+    def inspect_memory(self, top_n=10, max_col=80):
         # Functions to encode/decode states
         encode_state = lambda s: tuple(spaces.flatten(self.env.observation_space, s))
         decode_state = lambda s: spaces.unflatten(self.env.observation_space, s)
@@ -504,7 +504,10 @@ class DQNAgent():
         # Function to print top states from counter
         def top_states(counter):
             for i, (state, count) in enumerate(counter.most_common(top_n), 1):
-                print('{:>2}) Count: {} state: {}'.format(i, count, decode_state(state)))
+                state_label = str(decode_state(state))
+                state_label = state_label.replace('\n', ' ')
+                state_label = state_label[:max_col] + '..' if len(state_label) > max_col else state_label
+                print('{:>2}) Count: {} state: {}'.format(i, count, state_label))
 
         # Count statistics
         counters = defaultdict(Counter)

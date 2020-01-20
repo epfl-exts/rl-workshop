@@ -144,9 +144,9 @@ class DeliveryDrones(Env):
             # Drone discharges after each step, except if on station
             if isinstance(self.ground[position], Station):
                 drone.charge = min(100, drone.charge+20) # charge
-                rewards[drone.index] = -0.2 # cost of charging
+                rewards[drone.index] = -0.01 # cost of charging
             else:
-                drone.charge -= 5 # discharge
+                drone.charge -= 2 # discharge
                 # Without charge left, drone crashes
                 if drone.charge <= 0:
                     air_respawns.append(drone)
@@ -499,16 +499,16 @@ class GlobalGridView(ObservationWrapper):
         for drone, (y, x) in self.env.air.get_objects(Drone, zip_results=True):
             grid[y, x, 0] = drone.index
             if drone.packet is not None:
-                grid[y, x, 1] = drone.packet.index
+                grid[y, x, 1] = 1
             grid[y, x, 4] = drone.charge / 100
 
         # Packets
         for packet, (y, x) in self.env.ground.get_objects(Packet, zip_results=True):
-            grid[y, x, 1] = packet.index
+            grid[y, x, 1] = 1
 
         # Dropzones
         for dropzone, (y, x) in self.env.ground.get_objects(Dropzone, zip_results=True):
-            grid[y, x, 2] = dropzone.index
+            grid[y, x, 2] = 1
             
         # Stations
         grid[self.env.ground.get_objects(Station)[1] + (3,)] = 1
@@ -517,16 +517,15 @@ class GlobalGridView(ObservationWrapper):
     
 class PlayerGridView(GlobalGridView):
     """
-    Observation wrapper: (N, N, 7) arrays
-    Similar to GlobalGridView with channels 1-3 made binary
+    Observation wrapper: (N, N, 6) arrays
+    Similar to GlobalGridView for channels 1-5 with first "drones index" one made binary
     Channel 6 marks the position of the player's drone with a 1
-    Channel 7 marks the position of the target dropzone with a 1 (if any)
     """
     def __init__(self, env):
         # Initialize wrapper with observation space
         super().__init__(env)
         self.observation_space = spaces.Box(
-            low=0, high=1, shape=self.env.shape+(7,), dtype=np.float)
+            low=0, high=1, shape=self.env.shape+(6,), dtype=np.float)
         
     def observation(self, _):
         states = {}
@@ -535,20 +534,14 @@ class PlayerGridView(GlobalGridView):
         global_gridview = self.gen_gridview()
         
         for drone, (y, x) in self.env.air.get_objects(Drone, zip_results=True):
-            # Channels 1-3
-            gridview = np.zeros(shape=self.env.shape + (7,))
-            gridview[np.nonzero(global_gridview[:, :, :3])] = 1
+            # Channels 1-5
+            gridview = np.zeros(shape=self.env.shape+(6,))
+            gridview[:, :, :5] = global_gridview[:, :, :5]
+            gridview[np.nonzero(global_gridview[:, :, 0])+(0,)] = 1
             
-            # Channels 4-5
-            gridview[:, :, 3:5] = global_gridview[:, :, 3:5]
-
-            # Set layers with drone position and associated dropzone
+            # Drone position
             gridview[y, x, 5] = 1
-            if drone.packet is not None:
-                for dropzone, (dy, dx) in self.env.ground.get_objects(Dropzone, zip_results=True):
-                    if drone.packet.index == dropzone.index:
-                        gridview[dy, dx, 6] = 1
-
+            
             states[drone.index] = gridview
             
         return states
