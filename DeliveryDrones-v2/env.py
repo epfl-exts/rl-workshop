@@ -14,6 +14,10 @@ class Action(Enum):
     UP = 3
     STAY = 4
     
+class Skyscraper():
+    def __repr__(self):
+        return '#'
+    
 class Station():
     def __repr__(self):
         return '@'
@@ -72,9 +76,16 @@ class Grid():
             # Numpy like format: objects, (pos_x, pos_y)
             return self[objects_mask], np.nonzero(objects_mask)
     
-    def spawn(self, objects):
+    def spawn(self, objects, exclude_positions=None):
         """Spawn objects on empty tiles. Return positions."""
-        flat_idxs = np.random.choice(np.flatnonzero(self.grid == None), size=len(objects), replace=False)
+        positions_mask = (self.grid == None)
+        
+        if exclude_positions is not None:
+            except_mask = np.full(shape=positions_mask.shape, fill_value=True)
+            except_mask[exclude_positions] = False
+            positions_mask = np.logical_and(positions_mask, except_mask)
+            
+        flat_idxs = np.random.choice(np.flatnonzero(positions_mask), size=len(objects), replace=False)
         idxs = np.unravel_index(flat_idxs, self.shape)
         self.grid[idxs] = objects
         return idxs
@@ -129,8 +140,12 @@ class DeliveryDrones(Env):
                 new_position = position
             
             # Is the drone planning to move outside the grid?
-            if(self.air.is_inside(new_position)):
-                new_positions[new_position].append(drone)  
+            if self.air.is_inside(new_position):
+                # Is the drone going into a skyscraper?
+                if isinstance(self.ground[new_position], Skyscraper):
+                    air_respawns.append(drone)
+                else:
+                    new_positions[new_position].append(drone)  
             else:
                 air_respawns.append(drone)
                     
@@ -187,7 +202,9 @@ class DeliveryDrones(Env):
                         
         # Respawn objects
         self.ground.spawn(ground_respawns)
-        self._pick_packets_after_respawn(self.air.spawn(air_respawns))
+        skyscrapers, skyscrapers_positions = self.ground.get_objects(Skyscraper)
+        self._pick_packets_after_respawn(self.air.spawn(
+            air_respawns, exclude_positions=skyscrapers_positions))
         
         # Episode ends when drone respawns
         dones = {index: False for index in actions.keys()}
@@ -205,16 +222,20 @@ class DeliveryDrones(Env):
         
         # Create
         # Note: use 1-indexing to simplify state encoding where 0 denotes "absence"
-        self.packets = [Packet() for _ in range(2*self.n_drones)]
+        self.packets = [Packet() for _ in range(3*self.n_drones)]
         self.dropzones = [Dropzone() for _ in range(2*self.n_drones)]
-        self.stations = [Station() for _ in range(self.n_drones)]
+        self.stations = [Station() for _ in range(2*self.n_drones)]
         self.drones = [Drone(index) for index in range(1, self.n_drones+1)]
+        self.skyscrapers = [Skyscraper() for _ in range(3*self.n_drones)]
         
         # Spawn objects
         self.ground.spawn(self.packets)
         self.ground.spawn(self.dropzones)
         self.ground.spawn(self.stations)
-        self._pick_packets_after_respawn(self.air.spawn(self.drones))
+        skyscrapers_position = self.ground.spawn(self.skyscrapers)
+        self._pick_packets_after_respawn(self.air.spawn(
+            self.drones, exclude_positions=skyscrapers_position
+        ))
         
         return self._get_grids()
         
@@ -246,9 +267,14 @@ class DeliveryDrones(Env):
                     return '[ ]'
                 elif isinstance(ground_tile, Station):
                     return '@'
+                elif isinstance(ground_tile, Skyscraper):
+                    return '#'
                 
             # Air has a drone
             elif isinstance(air_tile, Drone):
+                if isinstance(ground_tile, Skyscraper):
+                    return '!!!' # TODO: remove
+                
                 if air_tile.packet is None:
                     if isinstance(ground_tile, Station):
                         return '{}@'.format(air_tile.index)
@@ -592,7 +618,8 @@ class WindowedGridView(ObservationWrapper):
         grid[self.env.ground.get_objects(Station)[1] + (3,)] = 1
 
         # Obstacles
-        pass
+        for skyscraper, (y, x) in self.env.ground.get_objects(Skyscraper, zip_results=True):
+            grid[y, x, 5] = 1
 
         # Pad
         padded_shape = (self.env.shape[0]+2*self.window, self.env.shape[1]+2*self.window, 6)
