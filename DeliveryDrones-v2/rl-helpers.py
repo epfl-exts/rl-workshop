@@ -23,23 +23,25 @@ def set_seed(env, seed):
 
 class MultiAgentTrainer():
     """A class to train agents in a multi-agent environment"""
-    def __init__(self, env, agents, seed=None):
+    def __init__(self, env, agents, reset_agents, seed=None):
         # Save parameters
         self.env, self.agents, self.seed = env, agents, seed
         
         # Create log of rewards and reset agents
         self.rewards_log = {key: [] for key in self.agents.keys()}
-        self.reset()
+        self.reset(reset_agents)
         
-    def reset(self):
+    def reset(self, reset_agents):
         # Set seed for reproducibility
         if self.seed is not None:
             set_seed(self.env, self.seed)
         
         # Reset agents and clear log of rewards
         for key, agent in self.agents.items():
-            agent.reset()
             self.rewards_log[key].clear()
+            
+            if reset_agents:
+                agent.reset()
 
     def train(self, n_steps):
         # Reset env. and get initial observations
@@ -247,6 +249,9 @@ class QLearningAgent():
         df = df.applymap(values_fmt.format)
         
         return df
+    
+    def format_state(self, s):
+        return self.cardinals[s]
         
 class DenseQNetwork(nn.Module):
     """
