@@ -90,9 +90,12 @@ class DeliveryDrones(Env):
     # OpenAI Gym environment fields
     metadata = {'render.modes': ['ainsi'], 'drone_density': 0.05}
     
-    def __init__(self, n):
+    def __init__(self, n, rewards_settings={'pickup': 1, 'delivery': 1, 'charge': -0.1, 'crash': -1}, discharge=10, station_charge=20):
         # Define size of the environment
         self.n_drones = n
+        self.rewards_settings = rewards_settings
+        self.discharge = discharge
+        self.station_charge = station_charge
         self.side_size = int(np.ceil(np.sqrt(self.n_drones/self.metadata['drone_density'])))
         self.shape = (self.side_size, self.side_size)
         
@@ -143,10 +146,10 @@ class DeliveryDrones(Env):
             
             # Drone discharges after each step, except if on station
             if isinstance(self.ground[position], Station):
-                drone.charge = min(100, drone.charge+20) # charge
-                rewards[drone.index] = -0.01 # cost of charging
+                drone.charge = min(100, drone.charge+self.station_charge) # charge
+                rewards[drone.index] = self.rewards_settings['charge'] # cost of charging
             else:
-                drone.charge -= 2 # discharge
+                drone.charge -= self.discharge # discharge
                 # Without charge left, drone crashes
                 if drone.charge <= 0:
                     air_respawns.append(drone)
@@ -157,13 +160,14 @@ class DeliveryDrones(Env):
 
             # Take packet if any
             if (drone.packet is None) and isinstance(self.ground[position], Packet):
+                rewards[drone.index] = self.rewards_settings['pickup']
                 drone.packet = self.ground[position]
                 self.ground[position] = None
                 
             # Did we just deliver a packet?
             elif (drone.packet is not None) and isinstance(self.ground[position], Dropzone):
                 # Pay the drone for the delivery
-                rewards[drone.index] = 1
+                rewards[drone.index] = self.rewards_settings['delivery']
                 
                 # Create new delivery
                 ground_respawns.extend([drone.packet, self.ground[position]])
@@ -176,12 +180,10 @@ class DeliveryDrones(Env):
             drone.charge = 100
             
             # Packet is destroyed
+            rewards[drone.index] = self.rewards_settings['crash']
             if drone.packet is not None:
                 ground_respawns.append(drone.packet)
                 drone.packet = None
-                rewards[drone.index] = -2
-            else:
-                rewards[drone.index] = -1
                         
         # Respawn objects
         self.ground.spawn(ground_respawns)
@@ -203,8 +205,8 @@ class DeliveryDrones(Env):
         
         # Create
         # Note: use 1-indexing to simplify state encoding where 0 denotes "absence"
-        self.packets = [Packet() for _ in range(self.n_drones)]
-        self.dropzones = [Dropzone() for _ in range(self.n_drones)]
+        self.packets = [Packet() for _ in range(2*self.n_drones)]
+        self.dropzones = [Dropzone() for _ in range(2*self.n_drones)]
         self.stations = [Station() for _ in range(self.n_drones)]
         self.drones = [Drone(index) for index in range(1, self.n_drones+1)]
         
@@ -544,4 +546,62 @@ class PlayerGridView(GlobalGridView):
             
             states[drone.index] = gridview
             
+        return states
+
+class WindowedGridView(ObservationWrapper):
+    """
+    Observation wrapper: (N, N, 6) numerical arrays with location of
+    (1) drones         marked with                   1 / 0 otherwise
+    (2) packets        marked with                   1 / 0 otherwise
+    (3) dropzones      marked with                   1 / 0 otherwise
+    (4) stations       marked with                   1 / 0 otherwise
+    (5) drones charge  marked with   charge level 0..1 / 0 otherwise
+    (6) obstacles      marked with                   1 / 0 otherwise
+    Where N is the size of the environment grid, i the number of drones
+    """
+    def __init__(self, env, window):
+        # Initialize wrapper with observation space
+        super().__init__(env)
+        self.window = window
+        assert window > 0, "Window size should be strictly positive"
+
+        self.observation_space = spaces.Box(
+            low=0, high=1, shape=(self.window*2+1, self.window*2+1, 6), dtype=np.float)
+        
+    def observation(self, _):
+        # Create grid
+        grid = np.zeros(shape=self.env.shape + (6,))
+        states = {}
+
+        # Drones (and their packets) + charge
+        for drone, (y, x) in self.env.air.get_objects(Drone, zip_results=True):
+            grid[y, x, 0] = 1
+            if drone.packet is not None:
+                grid[y, x, 1] = 1
+            grid[y, x, 4] = drone.charge / 100
+
+        # Packets
+        for packet, (y, x) in self.env.ground.get_objects(Packet, zip_results=True):
+            grid[y, x, 1] = 1
+
+        # Dropzones
+        for dropzone, (y, x) in self.env.ground.get_objects(Dropzone, zip_results=True):
+            grid[y, x, 2] = 1
+
+        # Stations
+        grid[self.env.ground.get_objects(Station)[1] + (3,)] = 1
+
+        # Obstacles
+        pass
+
+        # Pad
+        padded_shape = (self.env.shape[0]+2*self.window, self.env.shape[1]+2*self.window, 6)
+        padded_grid = np.zeros(padded_shape)
+        padded_grid[:, :, 5] = 1 # walls
+        padded_grid[self.window:-self.window, self.window:-self.window, :] = grid
+
+        # Return windowed state for each drone
+        states = {}
+        for drone, (y, x) in self.env.air.get_objects(Drone, zip_results=True):
+            states[drone.index] = padded_grid[y:y+2*self.window+1, x:x+2*self.window+1, :].copy()
         return states
