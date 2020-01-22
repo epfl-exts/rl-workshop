@@ -6,6 +6,8 @@ from gym import Env, ObservationWrapper, RewardWrapper
 from gym.utils import seeding
 import os
 import string
+from PIL import Image, ImageDraw, ImageFont
+import itertools
 
 class Action(Enum):
     LEFT = 0
@@ -107,12 +109,58 @@ class DeliveryDrones(Env):
             'drone_density': 0.05, 'n_drones': 3,
             'pickup_reward': 0, 'delivery_reward': 1, 'crash_reward': -1, 'charge_reward': -0.1,
             'discharge': 10, 'charge': 20,
-            'packets_factor': 3, 'dropzones_factor': 2, 'stations_factor': 2, 'skyscrapers_factor': 3
+            'packets_factor': 3, 'dropzones_factor': 2, 'stations_factor': 2, 'skyscrapers_factor': 3,
+            'rgb_render_rescale': 1.0
         }
         self.env_params.update(env_params)
         
         # Define spaces
         self.action_space = spaces.Discrete(len(Action))
+        
+    def __init_rgb_rendering(self):
+        # Load RGBA image
+        sprites_img = Image.open('16ShipCollection.png')
+        sprites_img_array = np.array(sprites_img)
+
+        # Make black background transparent
+        black_pixels = (sprites_img_array[:, :, 0] + sprites_img_array[:, :, 1] + sprites_img_array[:, :, 2]) == 0
+        sprites_img_array[np.nonzero(black_pixels) + (3,)] = 0
+
+        # Create tiles
+        def get_ships_tile(row, col):
+            tiles_size, small_padding, big_padding = 16, 4, 10
+            top_corner = (42, 28)
+
+            i = top_corner[0] + row*(tiles_size+small_padding)
+            j = top_corner[1] + (col%5)*(tiles_size+small_padding) + (col//5) * (5*(tiles_size+small_padding) + big_padding)
+            return Image.fromarray(sprites_img_array[i:i+tiles_size, j:j+tiles_size])
+
+        self.tiles = {
+            'packet': get_ships_tile(11, 9),
+            'dropzone': get_ships_tile(11, 8),
+            'station': get_ships_tile(18, 15),
+            'skyscraper': get_ships_tile(18, 12)
+        }
+
+        ships_iter = itertools.cycle(
+            itertools.product([1, 6, 15, 13, 7, 8, 16, 0, 2, 3, 4, 5, 9, 10, 13, 17], [0, 1, 2, 3, 4]))
+        
+        for index in range(self.env_params['n_drones']):
+            label = 'drone_{}'.format(index)
+            i, j = next(ships_iter)
+            self.tiles[label] = get_ships_tile(i, j)
+            self.tiles[label + '_packet'] = get_ships_tile(i, j+10) # red
+            self.tiles[label + '_charging'] = Image.alpha_composite(self.tiles['dropzone'], get_ships_tile(i, j+15)) # overlay + yellow
+            self.tiles[label + '_over_dropzone'] = Image.alpha_composite(self.tiles['dropzone'], get_ships_tile(i, j)) # overlay
+
+        # Create empty frame
+        self.render_padding, self.tiles_size = 8, 16
+        frames_size = self.tiles_size * self.shape[0] + self.render_padding * (self.shape[0] + 1)
+        self.empty_frame = np.full(shape=(frames_size, frames_size, 4), fill_value=0, dtype=np.uint8)
+        self.empty_frame[:, :, 3] = 255 # Remove background transparency
+        
+        # Font
+        self.font = ImageFont.truetype('Inconsolata-Bold.ttf', 16)
         
     def step(self, actions):
         # By default, drones get a reward of zero
@@ -241,13 +289,84 @@ class DeliveryDrones(Env):
             self.drones, exclude_positions=skyscrapers_position
         ))
         
+        # Initialize elements required for RGB rendering
+        self.__init_rgb_rendering()
+        
         return self._get_grids()
         
     def render(self, mode='ainsi'):
         if mode == 'ainsi':
             return self.__str__()
+        elif mode == 'rgb_array':
+            return self.render_rgb()
         else:
             super().render(mode=mode)
+            
+    def render_rgb(self):
+        # Render frame
+        frame = Image.fromarray(self.empty_frame.copy())
+        for i in range(self.shape[0]):
+            for j in range(self.shape[1]):
+                # Check tile
+                ground = self.ground[i, j]
+                air = self.air[i, j]
+
+                if (air is None) and (ground is None):
+                    continue # Nothing to draw
+
+                if air is None:
+                    if isinstance(ground, Packet):
+                        tile = self.tiles['packet']
+                    elif isinstance(ground, Dropzone):
+                        tile = self.tiles['dropzone']
+                    elif isinstance(ground, Station):
+                        tile = self.tiles['station']
+                    elif isinstance(ground, Skyscraper):
+                        tile = self.tiles['skyscraper']
+                else:
+                    # If air is not None, then it's a drone
+                    drone = air
+
+                    if drone.packet is None:
+                        if ground == None:
+                            tile = self.tiles['drone_{}'.format(drone.index)]
+                        elif isinstance(ground, Station):
+                            tile = self.tiles['drone_{}_charging'.format(drone.index)]
+                        elif isinstance(ground, Dropzone):
+                            tile = self.tiles['drone_{}_over_dropzone'.format(drone.index)]
+                    else:
+                        tile = self.tiles['drone_{}_packet'.format(drone.index)]
+
+                # Paste tile on frame
+                tile_x = j*self.tiles_size + (j+1)*self.render_padding
+                tile_y = i*self.tiles_size + (i+1)*self.render_padding
+                frame.paste(tile, (tile_x, tile_y), mask=tile)
+        
+        # Annotations
+        background_color = (20, 200, 200)
+        annotations = Image.new('RGBA', (120, frame.size[1]), color=background_color)
+        annotations_draw = ImageDraw.Draw(annotations, mode='RGBA')
+
+        for i, drone in enumerate(self.drones):
+            # Print sprite
+            drone_sprite = self.tiles['drone_{}'.format(drone.index)]
+            sprite_x = self.render_padding
+            sprite_y = i * self.tiles_size + (i+1) * self.render_padding
+            annotations.paste(drone_sprite, (sprite_x, sprite_y), drone_sprite)
+
+            # Print text
+            text_x = sprite_x + self.tiles_size + self.render_padding
+            text_y = sprite_y - 1
+            text_color = (0, 0, 0)
+            annotations_draw.text((text_x, text_y), 'Player {:>2}'.format(drone.index), fill=text_color, font=self.font)
+            
+        frame = Image.fromarray(np.hstack([frame, annotations]))
+            
+        # Rescale frame
+        rescale = lambda old_size: int(old_size * self.env_params['rgb_render_rescale'])
+        frame = frame.resize(size=(rescale(frame.size[0]), rescale(frame.size[1])), resample=Image.NEAREST)
+        
+        return np.array(frame)
     
     def _get_grids(self):
         return {'ground': self.ground, 'air': self.air}
