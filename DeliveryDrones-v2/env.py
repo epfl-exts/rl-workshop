@@ -126,7 +126,7 @@ class DeliveryDrones(Env):
         black_pixels = (sprites_img_array[:, :, 0] + sprites_img_array[:, :, 1] + sprites_img_array[:, :, 2]) == 0
         sprites_img_array[np.nonzero(black_pixels) + (3,)] = 0
 
-        # Create tiles
+        # Create tiles with the standard objects
         def get_ships_tile(row, col):
             tiles_size, small_padding, big_padding = 16, 4, 10
             top_corner = (42, 28)
@@ -142,16 +142,42 @@ class DeliveryDrones(Env):
             'skyscraper': get_ships_tile(18, 12)
         }
 
-        ships_iter = itertools.cycle(
-            itertools.product([1, 6, 15, 13, 7, 8, 16, 0, 2, 3, 4, 5, 9, 10, 13, 17], [0, 1, 2, 3, 4]))
+        # Define list of ships and colors
+        ship_types = [(1, 2), (6, 3), (8, 0), (9, 3), (9, 4), (10, 2), (17, 3)]
+        ship_colors = [0, 5, 10, 15, 20]
+
+        # Shuffle them
+        shuffled_ships_by_color = []
+        for color_col in ship_colors:
+            # Make sure we alternate between ships
+            idx = np.arange(len(ship_types))
+            np.random.shuffle(idx)
+            shuffled = np.array(ship_types)[idx]
+            shuffled[:, 1] += color_col
+            shuffled_ships_by_color.append(shuffled.tolist())
+
+        shuffled_ships = []
+        for ships in zip(*shuffled_ships_by_color):
+            # Make sure we alternate between colors
+            shuffled_ships.extend(ships)
+
+        # Create iterator
+        ships_iter = itertools.cycle(iter(shuffled_ships))
+        
+        # Create drone tiles
+        def overlay(img_a, img_b):
+            overlay = Image.new('RGBA', [img_a.size[0]+12, img_a.size[1]])
+            overlay.paste(img_a, (8, 0), img_a)
+            overlay.paste(img_b, (0, 0), img_b)
+            return overlay
         
         for index in range(self.env_params['n_drones']):
             label = 'drone_{}'.format(index)
             i, j = next(ships_iter)
             self.tiles[label] = get_ships_tile(i, j)
-            self.tiles[label + '_packet'] = get_ships_tile(i, j+10) # red
-            self.tiles[label + '_charging'] = Image.alpha_composite(self.tiles['dropzone'], get_ships_tile(i, j+15)) # overlay + yellow
-            self.tiles[label + '_over_dropzone'] = Image.alpha_composite(self.tiles['dropzone'], get_ships_tile(i, j)) # overlay
+            self.tiles[label + '_packet'] = overlay(self.tiles['packet'], get_ships_tile(i, j))
+            self.tiles[label + '_charging'] = overlay(self.tiles['station'], get_ships_tile(i, j))
+            self.tiles[label + '_dropzone'] = overlay(self.tiles['dropzone'], get_ships_tile(i, j))
 
         # Create empty frame
         self.render_padding, self.tiles_size = 8, 16
@@ -159,8 +185,24 @@ class DeliveryDrones(Env):
         self.empty_frame = np.full(shape=(frames_size, frames_size, 4), fill_value=0, dtype=np.uint8)
         self.empty_frame[:, :, 3] = 255 # Remove background transparency
         
-        # Font
-        self.font = ImageFont.truetype('Inconsolata-Bold.ttf', 16)
+        # Side panel
+        background_color = (20, 200, 200)
+        self.panel = Image.new('RGBA', (120, self.empty_frame.shape[1]), color=background_color)
+        annotations_draw = ImageDraw.Draw(self.panel, mode='RGBA')
+        font = ImageFont.truetype('Inconsolata-Bold.ttf', 16)
+
+        for i, drone in enumerate(self.drones):
+            # Print sprite
+            drone_sprite = self.tiles['drone_{}'.format(drone.index)]
+            sprite_x = self.render_padding
+            sprite_y = i * self.tiles_size + (i+1) * self.render_padding
+            self.panel.paste(drone_sprite, (sprite_x, sprite_y), drone_sprite)
+
+            # Print text
+            text_x = sprite_x + self.tiles_size + self.render_padding
+            text_y = sprite_y - 1
+            text_color = (0, 0, 0)
+            annotations_draw.text((text_x, text_y), 'Player {:>2}'.format(drone.index), fill=text_color, font=font)
         
     def step(self, actions):
         # By default, drones get a reward of zero
@@ -333,34 +375,22 @@ class DeliveryDrones(Env):
                         elif isinstance(ground, Station):
                             tile = self.tiles['drone_{}_charging'.format(drone.index)]
                         elif isinstance(ground, Dropzone):
-                            tile = self.tiles['drone_{}_over_dropzone'.format(drone.index)]
+                            tile = self.tiles['drone_{}_dropzone'.format(drone.index)]
                     else:
                         tile = self.tiles['drone_{}_packet'.format(drone.index)]
+                        
+                    # Encode charge in drone's transparency
+                    tile_array = np.array(tile)
+                    nontransparent = np.nonzero(tile_array[:, :, 3])
+                    tile_array[nontransparent + (3,)] = int(drone.charge*255/100)
+                    tile = Image.fromarray(tile_array)
 
                 # Paste tile on frame
                 tile_x = j*self.tiles_size + (j+1)*self.render_padding
                 tile_y = i*self.tiles_size + (i+1)*self.render_padding
                 frame.paste(tile, (tile_x, tile_y), mask=tile)
-        
-        # Annotations
-        background_color = (20, 200, 200)
-        annotations = Image.new('RGBA', (120, frame.size[1]), color=background_color)
-        annotations_draw = ImageDraw.Draw(annotations, mode='RGBA')
-
-        for i, drone in enumerate(self.drones):
-            # Print sprite
-            drone_sprite = self.tiles['drone_{}'.format(drone.index)]
-            sprite_x = self.render_padding
-            sprite_y = i * self.tiles_size + (i+1) * self.render_padding
-            annotations.paste(drone_sprite, (sprite_x, sprite_y), drone_sprite)
-
-            # Print text
-            text_x = sprite_x + self.tiles_size + self.render_padding
-            text_y = sprite_y - 1
-            text_color = (0, 0, 0)
-            annotations_draw.text((text_x, text_y), 'Player {:>2}'.format(drone.index), fill=text_color, font=self.font)
             
-        frame = Image.fromarray(np.hstack([frame, annotations]))
+        frame = Image.fromarray(np.hstack([frame, self.panel]))
             
         # Rescale frame
         rescale = lambda old_size: int(old_size * self.env_params['rgb_render_rescale'])
