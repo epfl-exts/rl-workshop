@@ -15,6 +15,7 @@ dependencies:
 - ipywidgets
 - nodejs
 - tqdm
+- pillow=7.0.0
 - pip
 - pip:
   - gym==0.15.3
