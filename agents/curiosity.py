@@ -1,6 +1,4 @@
-import datetime
 import random
-from abc import abstractmethod, ABC
 from typing import Tuple, List
 
 import numpy as np
@@ -8,17 +6,8 @@ import torch
 import torch.nn.functional as F
 from torch import nn, Tensor, optim
 
+from agents.logging import Logger
 from .dqn import DQNAgent
-
-
-class Logger(ABC):
-    def __init__(self, ) -> None:
-        super().__init__()
-        self.start = datetime.datetime.now()
-
-    @abstractmethod
-    def log_dict(self, global_step: int, values: dict) -> None:
-        pass
 
 
 class OneHot(nn.Module):
@@ -131,8 +120,8 @@ class IntrinsicCuriosityModule(nn.Module):
         self.num_actions = num_actions
         self.action_one_hot = OneHot(num_actions)
         self.state_embed = ConvNet(obs_shape, [
-            (32, 3, 2, 1),
-            (32, 3, 2, 1),
+            (32, 3, 1, 1),
+            (32, 3, 1, 1),
             (32, 3, 1, 1),
             (32, 3, 1, 1),
         ])
@@ -140,15 +129,6 @@ class IntrinsicCuriosityModule(nn.Module):
         self.inverse_model = DenseNet(2 * self.state_embed.out_features, [256], num_actions)
 
     def forward(self, state, action, next_state):
-        state = Tensor(state)
-        action = torch.LongTensor(action)
-        next_state = Tensor(next_state)
-
-        if torch.cuda.is_available():
-            state = state.cuda()
-            action = action.cuda()
-            next_state = next_state.cuda()
-
         a_t_one_hot = self.action_one_hot(action)
         phi_t = torch.flatten(self.state_embed(state), start_dim=1)
         phi_tp1 = torch.flatten(self.state_embed(next_state), start_dim=1)
@@ -160,10 +140,11 @@ class IntrinsicCuriosityModule(nn.Module):
 class CuriosityDQNAgent(DQNAgent):
 
     def __init__(self, env, dqn_factory, gamma, epsilon_start, epsilon_decay, epsilon_end, memory_size, batch_size,
-                 target_update_interval, eta=0.01, beta=0.2, lmbda=0.1, lr=1e-3):
+                 target_update_interval, eta=0.01, beta=0.2, lmbda=0.1, lr=1e-3, logger: Logger = None):
         # Initialize agent
-        super().__init__(env=env, dqn_factory=dqn_factory, gamma=gamma, epsilon_start=epsilon_start, epsilon_decay=epsilon_decay, epsilon_end=epsilon_end,
-                         memory_size=memory_size, batch_size=batch_size, target_update_interval=target_update_interval)
+        super().__init__(env=env, dqn_factory=dqn_factory, gamma=gamma, epsilon_start=epsilon_start,
+                         epsilon_decay=epsilon_decay, epsilon_end=epsilon_end, memory_size=memory_size,
+                         batch_size=batch_size, target_update_interval=target_update_interval, logger=logger)
 
         # Set the update interval for the target network
         self.target_update_interval = target_update_interval
@@ -216,6 +197,10 @@ class CuriosityDQNAgent(DQNAgent):
         self.total_steps += 1
         if done:  # Increment episode counter at the end of each episode
             self.num_episode += 1
+            self.logger.log_dict(self.total_steps, {
+                'episode_reward': self.episode_reward,
+                'memory_size': len(self.memory),
+            })
             self.episode_reward = 0
 
         # Update target network with current one
@@ -236,15 +221,6 @@ class CuriosityDQNAgent(DQNAgent):
             batch = random.sample(self.memory, self.batch_size)
             state, action, reward, next_state, done = zip(*batch)
 
-            # intrinsic reward
-            phi_tp1, inverse, forward = self.icm(state, action, next_state)
-            reward_intrinsic = self.eta * 0.5 * ((phi_tp1 - forward).pow(2)).sum(1).squeeze().detach()
-            reward_extrinsic = reward
-
-
-            # Q-value for current state given current action
-            q_values = self.qnetwork(state)
-
             action = torch.LongTensor(action)
             reward = Tensor(reward)
             done = Tensor(done)
@@ -254,8 +230,8 @@ class CuriosityDQNAgent(DQNAgent):
                 reward = reward.cuda()
                 done = done.cuda()
 
-            reward += reward_intrinsic
-
+            # Q-value for current state given current action
+            q_values = self.qnetwork(state)
             q_value = q_values.gather(1, action.unsqueeze(1)).squeeze(1)
 
             # Compute the TD target
@@ -266,6 +242,19 @@ class CuriosityDQNAgent(DQNAgent):
 
             # Optimize quadratic loss
             dqn_loss = (q_value - td_target.detach()).pow(2).mean()
+
+            state = Tensor(state)
+            next_state = Tensor(next_state)
+
+            if torch.cuda.is_available():
+                state = state.cuda()
+                next_state = next_state.cuda()
+
+            # intrinsic reward
+            phi_tp1, inverse, forward = self.icm(state, action, next_state)
+            reward_intrinsic = self.eta * 0.5 * ((phi_tp1 - forward).pow(2)).sum(1).squeeze().detach()
+            reward_extrinsic = reward
+            reward = reward + reward_intrinsic
 
             # Intrinsic curiosity module loss
             inverse_loss = F.cross_entropy(inverse, action.detach())
@@ -278,3 +267,14 @@ class CuriosityDQNAgent(DQNAgent):
             icm_loss.backward(retain_graph=True)
             loss.backward()
             self.optimizer.step()
+
+            self.logger.log_dict(self.total_steps, {
+                'curiosity/loss': loss.data.cpu().numpy(),
+                'curiosity/dqn_loss': dqn_loss.data.cpu().numpy(),
+                'curiosity/inverse_loss': inverse_loss.data.cpu().numpy(),
+                'curiosity/forward_loss': forward_loss.data.cpu().numpy(),
+                'curiosity/icm_loss': icm_loss.data.cpu().numpy(),
+                'curiosity/reward': reward.mean().data.cpu().numpy(),
+                'curiosity/reward_extrinsic': reward_extrinsic.mean().data.cpu().numpy(),
+                'curiosity/reward_intrinsic': reward_intrinsic.mean().data.cpu().numpy(),
+            })

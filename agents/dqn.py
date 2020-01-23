@@ -5,11 +5,12 @@ from collections import deque
 import gym.spaces as spaces
 import matplotlib.pyplot as plt
 import numpy as np
-import pandas as pd
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch import Tensor, LongTensor
+
+from agents.logging import Logger
 
 
 class DenseQNetwork(nn.Module):
@@ -175,7 +176,8 @@ class DQNAgent():
     and a target network.
     """
 
-    def __init__(self, env, dqn_factory, gamma, epsilon_start, epsilon_decay, epsilon_end, memory_size, batch_size, target_update_interval):
+    def __init__(self, env, dqn_factory, gamma, epsilon_start, epsilon_decay, epsilon_end, memory_size, batch_size,
+                 target_update_interval, logger: Logger = None):
         # Save parameters
         self.env = env
         self.dqn_factory = dqn_factory  # Factory to create q-networks + optimizers
@@ -187,12 +189,15 @@ class DQNAgent():
         self.batch_size = batch_size  # Batch size
         self.target_update_interval = target_update_interval  # Update rate
         self.is_greedy = False  # Does the agent behave greedily?
+        self.logger = logger
 
     def reset(self):
         # Create networks with episode counter to know when to update them
         self.qnetwork, self.optimizer = self.dqn_factory.create_qnetwork(target_qnetwork=False)
         self.target_qnetwork, _ = self.dqn_factory.create_qnetwork(target_qnetwork=True)
         self.num_episode = 0
+        self.episode_reward = 0
+        self.total_steps = 0
 
         # Reset exploration rate
         self.epsilon = self.epsilon_start
@@ -214,14 +219,21 @@ class DQNAgent():
     def learn(self, state, action, reward, next_state, done):
         # Memorize experience
         self.memory.append((state, action, reward, next_state, done))
+        self.episode_reward += reward
+        self.total_steps += 1
 
         # End of episode
         if done:
             self.num_episode += 1  # Episode counter
+            self.logger.log_dict(self.total_steps, {
+                'episode_reward': self.episode_reward,
+                'memory_size': len(self.memory),
+            })
             self.epsilons.append(self.epsilon)  # Log epsilon value
 
             # Epislone decay
             self.epsilon = max(self.epsilon * self.epsilon_decay, self.epsilon_end)
+            self.episode_reward = 0
 
         # Periodically update target network with current one
         if self.num_episode % self.target_update_interval == 0:
@@ -244,7 +256,6 @@ class DQNAgent():
 
             # Q-value for current state given current action
             q_values = self.qnetwork(state)
-
             q_value = q_values.gather(1, action.unsqueeze(1)).squeeze(1)
 
             # Compute the TD target
@@ -258,6 +269,11 @@ class DQNAgent():
             self.optimizer.zero_grad()
             loss.backward()
             self.optimizer.step()
+
+            self.logger.log_dict(self.total_steps, {
+                'dqn/loss': loss.data.cpu().numpy(),
+                'dqn/reward': reward.mean().data.cpu().numpy(),
+            })
 
     def inspect_memory(self, top_n=10, max_col=80):
         # Functions to encode/decode states
