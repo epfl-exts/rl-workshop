@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import torch
-from tqdm import tqdm
+from tqdm.notebook import tqdm
 
 
 def set_seed(env, seed):
