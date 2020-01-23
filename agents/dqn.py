@@ -10,7 +10,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torch import Tensor, LongTensor
 
-from agents.logging import Logger
+from agents.logging import Logger, NoLogger
 
 
 class DenseQNetwork(nn.Module):
@@ -189,7 +189,7 @@ class DQNAgent():
         self.batch_size = batch_size  # Batch size
         self.target_update_interval = target_update_interval  # Update rate
         self.is_greedy = False  # Does the agent behave greedily?
-        self.logger = logger
+        self.logger = logger or NoLogger()
 
     def reset(self):
         # Create networks with episode counter to know when to update them
