@@ -73,7 +73,7 @@ def test_agents(env, agents, n_steps, seed=None):
     rewards_log = defaultdict(list)
     
     # Set greedy flag
-    for key, agent in self.agents.items():
+    for key, agent in agents.items():
         agent.is_greedy = True
 
     for _ in tqdm(range(n_steps), 'Testing agents'):
