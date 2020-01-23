@@ -2,3 +2,4 @@
 logs
 venv
 .DS_Store
+__pycache__

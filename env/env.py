@@ -119,7 +119,7 @@ class DeliveryDrones(Env):
         
     def __init_rgb_rendering(self):
         # Load RGBA image
-        sprites_img = Image.open('16ShipCollection.png')
+        sprites_img = Image.open(os.path.join('env', '16ShipCollection.png'))
         sprites_img_array = np.array(sprites_img)
 
         # Make black background transparent
@@ -189,7 +189,7 @@ class DeliveryDrones(Env):
         background_color = (20, 200, 200)
         self.panel = Image.new('RGBA', (120, self.empty_frame.shape[1]), color=background_color)
         annotations_draw = ImageDraw.Draw(self.panel, mode='RGBA')
-        font = ImageFont.truetype('Inconsolata-Bold.ttf', 16)
+        font = ImageFont.truetype(os.path.join('env', 'Inconsolata-Bold.ttf'), 16)
 
         for i, drone in enumerate(self.drones):
             # Print sprite
