@@ -14,7 +14,7 @@ dependencies:
 - seaborn=0.9.0
 - ipywidgets
 - nodejs
-- tqdm
+- tqdm==4.41.1
 - pillow=7.0.0
 - pip
 - pip:
