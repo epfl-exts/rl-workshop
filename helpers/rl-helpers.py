@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 import torch
 from tqdm.notebook import tqdm
+from moviepy.editor import ImageClip, concatenate_videoclips
 
 
 def set_seed(env, seed):
@@ -157,3 +158,27 @@ def plot_rolling_rewards(rewards_log, ax=None, window=None, hline=None, subset=N
 
     if create_figure:
         plt.show()
+        
+def render_video(env, agents, video_path, n_steps=60, fps=1, seed=None):
+    # Initialization
+    if seed is not None:
+        set_seed(env, seed=seed)
+    states = env.reset()
+
+    # Run agents
+    frames = []
+    for _ in tqdm(range(n_steps), 'Running agents', unit='frame'):
+        # Select actions based on current states
+        actions = {key: agent.act(states[key]) for key, agent in agents.items()}
+
+        # Perform the selected action
+        next_states, rewards, dones, _ = env.step(actions)
+        states = next_states
+        
+        # Save frame
+        frames.append(env.render(mode='rgb_array'))
+
+    # Create video
+    clips = [ImageClip(frame).set_duration(fps) for frame in frames]
+    concat_clip = concatenate_videoclips(clips, method="compose")
+    concat_clip.write_videofile(video_path, fps=24)
