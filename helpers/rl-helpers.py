@@ -44,6 +44,10 @@ class MultiAgentTrainer():
     def train(self, n_steps):
         # Reset env. and get initial observations
         states = self.env.reset()
+        
+        # Set greedy flag
+        for key, agent in self.agents.items():
+            agent.is_greedy = False
 
         for i in tqdm(range(n_steps), 'Training agents'):
             # Select actions based on current states
@@ -67,6 +71,10 @@ def test_agents(env, agents, n_steps, seed=None):
         set_seed(env, seed=seed)
     states = env.reset()
     rewards_log = defaultdict(list)
+    
+    # Set greedy flag
+    for key, agent in self.agents.items():
+        agent.is_greedy = True
 
     for _ in tqdm(range(n_steps), 'Testing agents'):
         # Select actions based on current states
