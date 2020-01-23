@@ -82,7 +82,6 @@ class ConvQNetwork(nn.Module):
         self.network = nn.Sequential()
 
         # Convolutional layers
-        conv_i = 0
         for conv_i, conv_kwds in enumerate(self.conv_layers):
             assert 'out_channels' in conv_kwds, 'You need to define the number of kernels "out_channels" for each conv. layer'
             assert 'kernel_size' in conv_kwds, 'You need to define the kernel size "kernel_size" for each conv. layer'

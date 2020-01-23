@@ -139,10 +139,19 @@ class IntrinsicCuriosityModule(nn.Module):
         self.forward_model = DenseNet(num_actions + self.state_embed.out_features, [256], self.state_embed.out_features)
         self.inverse_model = DenseNet(2 * self.state_embed.out_features, [256], num_actions)
 
-    def forward(self, s_t, a_t, s_tp1):
-        a_t_one_hot = self.action_one_hot(a_t)
-        phi_t = torch.flatten(self.state_embed(s_t), start_dim=1)
-        phi_tp1 = torch.flatten(self.state_embed(s_tp1), start_dim=1)
+    def forward(self, state, action, next_state):
+        state = Tensor(state)
+        action = torch.LongTensor(action)
+        next_state = Tensor(next_state)
+
+        if torch.cuda.is_available():
+            state = state.cuda()
+            action = action.cuda()
+            next_state = next_state.cuda()
+
+        a_t_one_hot = self.action_one_hot(action)
+        phi_t = torch.flatten(self.state_embed(state), start_dim=1)
+        phi_tp1 = torch.flatten(self.state_embed(next_state), start_dim=1)
         forward = self.forward_model(torch.cat([a_t_one_hot, phi_t], dim=-1))
         inverse = self.inverse_model(torch.cat([phi_t, phi_tp1], dim=-1))
         return phi_tp1, inverse, forward
@@ -199,10 +208,7 @@ class CuriosityDQNAgent(DQNAgent):
         if np.random.rand() < epsilon:
             return self.env.action_space.sample()
         else:
-            state = torch.Tensor([state])
-            if torch.cuda.is_available():
-                state = state.cuda()
-            q_values = self.qnetwork(state)[0]
+            q_values = self.qnetwork([state])[0]
             return q_values.argmax().item()  # Greedy action
 
     def learn(self, state, action, reward, next_state, done):
@@ -230,32 +236,32 @@ class CuriosityDQNAgent(DQNAgent):
             batch = random.sample(self.memory, self.batch_size)
             state, action, reward, next_state, done = zip(*batch)
 
-            state = Tensor(state)
-            action = torch.LongTensor(action)
-            reward = Tensor(reward)
-            next_state = Tensor(next_state)
-            done = Tensor(done)
-
-            if torch.cuda.is_available():
-                state = state.cuda()
-                action = action.cuda()
-                reward = reward.cuda()
-                next_state = next_state.cuda()
-                done = done.cuda()
-
             # intrinsic reward
             phi_tp1, inverse, forward = self.icm(state, action, next_state)
             reward_intrinsic = self.eta * 0.5 * ((phi_tp1 - forward).pow(2)).sum(1).squeeze().detach()
             reward_extrinsic = reward
-            reward += reward_intrinsic
+
 
             # Q-value for current state given current action
             q_values = self.qnetwork(state)
+
+            action = torch.LongTensor(action)
+            reward = Tensor(reward)
+            done = Tensor(done)
+
+            if torch.cuda.is_available():
+                action = action.cuda()
+                reward = reward.cuda()
+                done = done.cuda()
+
+            reward += reward_intrinsic
+
             q_value = q_values.gather(1, action.unsqueeze(1)).squeeze(1)
 
             # Compute the TD target
             next_q_values = self.target_qnetwork(next_state)
             next_q_value = next_q_values.max(1)[0]
+
             td_target = reward + self.gamma * next_q_value * (1 - done)
 
             # Optimize quadratic loss
