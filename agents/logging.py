@@ -5,7 +5,6 @@ from abc import abstractmethod, ABC
 from typing import Any
 
 import numpy as np
-import tensorflow as tf
 
 
 class Logger(ABC):
@@ -21,10 +20,12 @@ class Logger(ABC):
 class TensorBoardLogger(Logger):
     def __init__(self, path: str, name: str) -> None:
         super().__init__()
+        import tensorflow as tf
         pathlib.Path(path).mkdir(parents=True, exist_ok=True)
         self.summary_writer = tf.summary.FileWriter(os.path.join(path, name))
 
     def log_histogram(self, global_step: int, name: str, values: Any, bins=1000) -> None:
+        import tensorflow as tf
         counts, bin_edges = np.histogram(values, bins=bins)
         hist = tf.HistogramProto()
         hist.min = float(np.min(values))
@@ -41,6 +42,7 @@ class TensorBoardLogger(Logger):
         self.log_tensoboard_summary(global_step, summary)
 
     def log_dict(self, global_step: int, values: dict) -> None:
+        import tensorflow as tf
         summary = tf.Summary(value=[tf.Summary.Value(tag=name, simple_value=value) for name, value in values.items()])
         self.log_tensoboard_summary(global_step, summary)
 
