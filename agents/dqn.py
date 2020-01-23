@@ -205,6 +205,13 @@ class DQNAgent():
 
         # Create new replay memory
         self.memory = deque(maxlen=self.memory_size)
+        
+    def save(self, path):
+        torch.save(self.qnetwork, path)
+        
+    def load(self, path):
+        device = torch.device("cuda") if torch.cuda.is_available() else torch.device('cpu')
+        self.qnetwork = torch.load(path, map_location=device)
 
     def act(self, state):
         # Exploration rate
