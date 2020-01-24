@@ -7,6 +7,7 @@ import pandas as pd
 import torch
 from tqdm.notebook import tqdm
 from moviepy.editor import ImageClip, concatenate_videoclips
+from base64 import b64encode
 
 
 def set_seed(env, seed):
@@ -92,35 +93,33 @@ def test_agents(env, agents, n_steps, seed=None):
     return rewards_log
 
 
-def plot_cumulative_rewards(rewards_log, ax=None, subset=None):
+def plot_cumulative_rewards(rewards_log, events={'pickup': [1], 'crash': [-1]}, drones_labels=None, ax=None):
     # Creat figure etc.. if ax none
     create_figure = (ax is None)
     if create_figure:
         fig = plt.figure(figsize=(12, 4))
         ax = fig.gca()
 
-    # Define which entry to plot
-    subset = rewards_log.keys() if subset is None else subset
-
     # Plot rewards
     for key, rewards in rewards_log.items():
-        if key in subset:
-            # Work with Numpy array
-            rewards = np.array(rewards)
-            pickup = (rewards == 1)
-            crashed = (rewards == -1) | (rewards == -2)
-
-            # Compute cumulative sum
-            cumsum = np.cumsum(rewards)
-            idxs = range(1, len(cumsum) + 1)
-
-            # Create label with pickup/crash rate
-            label = r'Drone {} - reward: {:.3f}±{:.3f}, pickup: {:.2f}% ({}) crash: {:.2f}% ({})'.format(
-                key, np.mean(rewards), np.std(rewards),
-                100 * pickup.mean(), pickup.sum(), 100 * crashed.mean(), crashed.sum())
-
-            # Plot results
-            ax.step(idxs, cumsum, label=label)
+        # Drone name
+        if (drones_labels is None) or (key not in drones_labels):
+            drone_name = 'Drone {}'.format(key)
+        else:
+            drone_name = drones_labels[key]
+        
+        # Reward stats
+        label = '{} - reward: {:.3f}±{:.3f}'.format(drone_name, np.mean(rewards), np.std(rewards))
+        
+        # Events stats
+        for event, rewards_values in events.items():
+            event_mask = np.isin(rewards, rewards_values)
+            label += ' ' + '{}: {:.1f}% ({})'.format(event, 100*np.mean(event_mask), np.sum(event_mask))
+                
+        # Plot cumulative sum with stats
+        cumsum = np.cumsum(rewards)
+        idxs = range(1, len(cumsum) + 1)
+        ax.step(idxs, cumsum, label=label)
 
     ax.set_xlabel('Step')
     ax.set_ylabel('Cumulative reward')
@@ -130,31 +129,33 @@ def plot_cumulative_rewards(rewards_log, ax=None, subset=None):
         plt.show()
 
 
-def plot_rolling_rewards(rewards_log, ax=None, window=None, hline=None, subset=None):
+def plot_rolling_rewards(rewards_log, window=None, hline=None, events={'pickup': [1], 'crash': [-1]}, drones_labels=None, ax=None):
     # Creat figure etc.. if ax none
     create_figure = (ax is None)
     if create_figure:
         fig = plt.figure(figsize=(12, 4))
         ax = fig.gca()
 
-    # Define which entry to plot
-    subset = rewards_log.keys() if subset is None else subset
-
     for key, rewards in rewards_log.items():
-        if key in subset:
-            # Work with Numpy array
-            rewards = np.array(rewards)
-            steps = range(1, len(rewards) + 1)
-            pickup = (rewards == 1)
-            crashed = (rewards == -1) | (rewards == -2)
+        # Drone name
+        if (drones_labels is None) or (key not in drones_labels):
+            drone_name = 'Drone {}'.format(key)
+        else:
+            drone_name = drones_labels[key]
+        
+        # Events stats
+        label = '{}'.format(drone_name) + ' -' if len(events) > 0 else ''
+        for event, rewards_values in events.items():
+            event_mask = np.isin(rewards, rewards_values)
+            label += ' ' + '{}: {:.1f}% ({})'.format(event, 100*np.mean(event_mask), np.sum(event_mask))
 
-            # Set default for window size
-            window = int(len(rewards) / 10) if window is None else window
+        # Set default for window size
+        window = int(len(rewards) / 10) if window is None else window
 
-            # Plot rolling mean
-            rolling_mean = pd.Series(rewards).rolling(window).mean()
-            label = 'Drone {} - pickup: {} crash: {}'.format(key, pickup.sum(), crashed.sum())
-            ax.plot(steps, rolling_mean, label=label)
+        # Plot rolling mean
+        rolling_mean = pd.Series(rewards).rolling(window).mean()
+        steps = range(1, len(rewards) + 1)
+        ax.plot(steps, rolling_mean, label=label)
 
     if hline is not None:
         ax.axhline(hline, label='target value', c='C0', linestyle='--')
@@ -190,3 +191,15 @@ def render_video(env, agents, video_path, n_steps=60, fps=1, seed=None):
     clips = [ImageClip(frame).set_duration(fps) for frame in frames]
     concat_clip = concatenate_videoclips(clips, method="compose")
     concat_clip.write_videofile(video_path, fps=24)
+    
+class ColabVideo():
+    def __init__(self, path):
+        # Source: https://stackoverflow.com/a/57378660/3890306
+        self.video_src = 'data:video/mp4;base64,' + b64encode(open(path, 'rb').read()).decode()
+        
+    def _repr_html_(self):
+        return """
+        <video width=400 controls>
+              <source src="{}" type="video/mp4">
+        </video>
+        """.format(self.video_src)
