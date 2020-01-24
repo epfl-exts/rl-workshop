@@ -93,7 +93,7 @@ def test_agents(env, agents, n_steps, seed=None):
     return rewards_log
 
 
-def plot_cumulative_rewards(rewards_log, events={'pickup': [1], 'crash': [-1]}, drones_labels=None, ax=None):
+def plot_cumulative_rewards(rewards_log, events={'delivery': [1], 'crash': [-1]}, drones_labels=None, ax=None):
     # Creat figure etc.. if ax none
     create_figure = (ax is None)
     if create_figure:
@@ -129,7 +129,7 @@ def plot_cumulative_rewards(rewards_log, events={'pickup': [1], 'crash': [-1]}, 
         plt.show()
 
 
-def plot_rolling_rewards(rewards_log, window=None, hline=None, events={'pickup': [1], 'crash': [-1]}, drones_labels=None, ax=None):
+def plot_rolling_rewards(rewards_log, window=None, hline=None, events={'delivery': [1], 'crash': [-1]}, drones_labels=None, ax=None):
     # Creat figure etc.. if ax none
     create_figure = (ax is None)
     if create_figure:
@@ -173,6 +173,10 @@ def render_video(env, agents, video_path, n_steps=60, fps=1, seed=None):
     if seed is not None:
         set_seed(env, seed=seed)
     states = env.reset()
+    
+    # Set greedy flag
+    for key, agent in agents.items():
+        agent.is_greedy = True
 
     # Run agents
     frames = []
