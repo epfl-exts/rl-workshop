@@ -396,7 +396,7 @@ class DeliveryDrones(Env):
         rescale = lambda old_size: int(old_size * self.env_params['rgb_render_rescale'])
         frame = frame.resize(size=(rescale(frame.size[0]), rescale(frame.size[1])), resample=Image.NEAREST)
         
-        return np.array(frame)
+        return np.array(frame)[:, :, :3] # RGB
     
     def _get_grids(self):
         return {'ground': self.ground, 'air': self.air}
@@ -561,13 +561,13 @@ class LidarCompassQTable(CompassQTable):
             ('lidar', spaces.MultiBinary(8))
         ])
         self.lidar_positions = {
-            '←' : [(0, -1), (0, -2)],
+            '←' : [(0, -1)],
             '↙': [(1, -1)],
-            '↓' : [(1, 0), (2, 0)],
+            '↓' : [(1, 0)],
             '↘': [(1, 1)],
-            '→' : [(0, 1), (0, 2)],
+            '→' : [(0, 1)],
             '↗': [(-1, 1)],
-            '↑' : [(-1, 0), (-2, 0)],
+            '↑' : [(-1, 0)],
             '↖': [(-1, -1)]
         }
         
@@ -588,6 +588,8 @@ class LidarCompassQTable(CompassQTable):
             if not self.env.air.is_inside([y, x]):
                 return 1
             if isinstance(self.env.air[y, x], Drone):
+                return 1
+            if isinstance(self.env.ground[y, x], Skyscraper):
                 return 1
         return 0
     
@@ -652,13 +654,13 @@ class LidarCompassChargeQTable(LidarCompassQTable):
 class WindowedGridView(ObservationWrapper):
     """
     Observation wrapper: (N, N, 6) numerical arrays with location of
-    (1) drones         marked with                   1 / 0 otherwise
-    (2) packets        marked with                   1 / 0 otherwise
-    (3) dropzones      marked with                   1 / 0 otherwise
-    (4) stations       marked with                   1 / 0 otherwise
-    (5) drones charge  marked with   charge level 0..1 / 0 otherwise
-    (6) obstacles      marked with                   1 / 0 otherwise
-    Where N is the size of the environment grid, i the number of drones
+    (0) drones         marked with                   1 / 0 otherwise
+    (1) packets        marked with                   1 / 0 otherwise
+    (2) dropzones      marked with                   1 / 0 otherwise
+    (3) stations       marked with                   1 / 0 otherwise
+    (4) drones charge  marked with   charge level 0..1 / 0 otherwise
+    (5) obstacles      marked with                   1 / 0 otherwise
+    Where N is the size of the window, i the number of drones
     """
     def __init__(self, env, radius):
         # Initialize wrapper with observation space
@@ -706,3 +708,6 @@ class WindowedGridView(ObservationWrapper):
         for drone, (y, x) in self.env.air.get_objects(Drone, zip_results=True):
             states[drone.index] = padded_grid[y:y+2*self.radius+1, x:x+2*self.radius+1, :].copy()
         return states
+    
+    def format_state(self, s):
+        return 'Numpy array {}'.format(s.shape)
