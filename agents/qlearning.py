@@ -69,6 +69,12 @@ class QLearningAgent():
 
         # Generate new entry in table for new states
         if state not in self.q_table:
+            # By adding an entry in the Q-table, we make the agent's
+            # behavior dependent on previous runs and hence previous seeds!
+            # This is not expected in greedy mode.
+            if self.is_greedy:
+                return np.random.rand(self.env.action_space.n)
+            
             self.q_table[state] = np.random.rand(self.env.action_space.n)
 
         return self.q_table[state]
