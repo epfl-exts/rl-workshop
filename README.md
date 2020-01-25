@@ -6,6 +6,8 @@ Talk @ Applied Machine Learning days 2020
 
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/pacm/rl-workshop) [![Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/pacm/rl-workshop/master)
 
+Gitter channel: https://gitter.im/rl-workshop/community
+
 **Part 1 – Introduction to RL / environment**
 
 * 09:00 Intro to RL
