@@ -210,6 +210,7 @@ class DroneRacerEvaluator:
         "score" : score,
         "score_secondary" : score_secondary,
         "media_video_path" : video_output_path
+        "media_video_thumb_path" : video_thumb_output_path
     }
 
     return _result_object
