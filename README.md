@@ -18,7 +18,7 @@ Gitter channel: https://gitter.im/rl-workshop/community
 
 **Part 2 – Modern RL methods**
 
-* 13:30 Prioritized Experience Replay
+* 13:30 Prioritized Experience Replay [notebook](https://colab.research.google.com/drive/1JR6Q3A9X4KUznZkgwQhLvX4J7sizzPes)
 * *15:00 Coffee break*
 * 15:30 Curiosity
 * *17:00 End of workshop*
