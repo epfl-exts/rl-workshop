@@ -6,6 +6,9 @@ import tqdm
 
 from env.env import DeliveryDrones, WindowedGridView
 from rl_helpers.rl_helpers import set_seed
+from PIL import Image
+import tempfile
+import shutil
 
 class DroneRacerEvaluator:
   def __init__(self, answer_folder_path=".", round=1):
@@ -34,6 +37,8 @@ class DroneRacerEvaluator:
         "baseline-8" : "baseline_models/random-agent-3.pt",
         "baseline-9" : "baseline_models/random-agent-3.pt",
     }
+
+    self.video_directory_path = tempfile.mkdtemp()
 
     ################################################
     ################################################
@@ -76,6 +81,8 @@ class DroneRacerEvaluator:
     aicrowd_submission_id = client_payload["aicrowd_submission_id"]
     aicrowd_participant_uid = client_payload["aicrowd_participant_id"]
 
+    self.video_directory_path = tempfile.mkdtemp()
+    print("Video Directory Path : ", self.video_directory_path)
 
     ################################################
     ################################################
@@ -154,10 +161,13 @@ class DroneRacerEvaluator:
                 # Collect frames for the first episode to generate video
                 ################################################
                 if _episode_idx == 0:
-                    # Record videos with env.render
-                    # Do it in a tempfile
-                    # Compile frames into a video (from flatland)
-                    pass
+                    if _step < 60:
+                        # Use only the first 60 frames for video generation
+                        # Record videos with env.render
+                        # Do it in a tempfile
+                        # Compile frames into a video (from flatland)
+                        _step_frame_im = Image.fromarray(env.render(mode='rgb_array'))
+                        _step_frame_im.save("{}/{}.jpg".format(self.video_directory_path, str(_step).zfill(5)))
 
             # Perform action (on all agents)
             state, rewards, done, info = env.step(_action_dictionary)
@@ -169,6 +179,7 @@ class DroneRacerEvaluator:
 
         # Store the current episode scores
         self.overall_scores.append(episode_scores)
+        print("Video directory : ", self.video_directory_path)
 
 
     # Aggregate all scores into an overall score
