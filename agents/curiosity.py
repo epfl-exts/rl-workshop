@@ -94,7 +94,9 @@ class IntrinsicCuriosityModule(nn.Module):
 class CuriosityDQNAgent(DQNAgent):
 
     def __init__(self, env, dqn_factory, gamma, epsilon_start, epsilon_decay, epsilon_end, memory_size, batch_size,
-                 target_update_interval, eta=0.01, beta=0.2, lmbda=0.1, lr=1e-3, logger: Logger = None):
+                 target_update_interval, eta=0.01, beta=0.2, lmbda=0.1, lr=1e-3,
+                 icm_embed_convs: List[Tuple[int, int, int, int]] = None, icm_forward_hidden: List[int] = None,
+                 icm_inverse_hidden: List[int] = None, logger: Logger = None):
         # Initialize agent
         super().__init__(env=env, dqn_factory=dqn_factory, gamma=gamma, epsilon_start=epsilon_start,
                          epsilon_decay=epsilon_decay, epsilon_end=epsilon_end, memory_size=memory_size,
@@ -109,11 +111,17 @@ class CuriosityDQNAgent(DQNAgent):
         self.lmbda = lmbda
         self.lr = lr
 
+        self.icm_embed_convs = icm_embed_convs
+        self.icm_forward_hidden = icm_forward_hidden
+        self.icm_inverse_hidden = icm_inverse_hidden
+
     def create_qnetwork(self):
         # Create network
         network, _ = self.network_fn.create_qnetwork(target_qnetwork=False)
 
-        self.icm = IntrinsicCuriosityModule(self.env.observation_space.shape, self.env.action_space.n)
+        self.icm = IntrinsicCuriosityModule(self.env.observation_space.shape, self.env.action_space.n,
+                                            embed_convs=self.icm_embed_convs, forward_hidden=self.icm_forward_hidden,
+                                            inverse_hidden=self.icm_inverse_hidden)
 
         model = nn.ModuleList([network, self.icm])
 
