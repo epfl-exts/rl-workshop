@@ -119,7 +119,7 @@ class DeliveryDrones(Env):
         
     def __init_rgb_rendering(self):
         # Load RGBA image
-        sprites_img = Image.open(os.path.join('env', '16ShipCollection.png'))
+        sprites_img = Image.open(os.path.join(os.path.dirname(os.path.realpath(__file__)), '16ShipCollection.png'))
         sprites_img_array = np.array(sprites_img)
 
         # Make black background transparent
