@@ -87,7 +87,8 @@ class DroneRacerEvaluator:
     ################################################
     # submission_path = "baseline_models/random-agent-0.pt" # To be received directly
 
-    model = torch.load(submission_file_path)
+    device = torch.device("cuda") if torch.cuda.is_available() else torch.device('cpu')
+    model = torch.load(submission_file_path, map_location=device)
     self.participating_agents["PARTICIPANT_MODEL"] = model
 
     self.overall_scores = []
