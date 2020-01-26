@@ -9,6 +9,7 @@ from rl_helpers.rl_helpers import set_seed
 from PIL import Image
 import tempfile
 import shutil
+import aicrowd_helpers
 
 class DroneRacerEvaluator:
   def __init__(self, answer_folder_path=".", round=1):
@@ -167,7 +168,7 @@ class DroneRacerEvaluator:
                         # Do it in a tempfile
                         # Compile frames into a video (from flatland)
                         _step_frame_im = Image.fromarray(env.render(mode='rgb_array'))
-                        _step_frame_im.save("{}/{}.jpg".format(self.video_directory_path, str(_step).zfill(5)))
+                        _step_frame_im.save("{}/{}.jpg".format(self.video_directory_path, str(_step).zfill(4)))
 
             # Perform action (on all agents)
             state, rewards, done, info = env.step(_action_dictionary)
@@ -179,8 +180,14 @@ class DroneRacerEvaluator:
 
         # Store the current episode scores
         self.overall_scores.append(episode_scores)
-        print("Video directory : ", self.video_directory_path)
-
+    print("Video directory : ", self.video_directory_path)
+    # Post Process Video
+    print("Generating Video from thumbnails...")
+    video_output_path, video_thumb_output_path = \
+        aicrowd_helpers.generate_movie_from_frames(
+            self.video_directory_path
+        )
+    print("Videos : ", video_output_path, video_thumb_output_path)
 
     # Aggregate all scores into an overall score
     # TODO : Add aggregation function (lets start with simple mean + std)
@@ -201,7 +208,8 @@ class DroneRacerEvaluator:
 
     _result_object = {
         "score" : score,
-        "score_secondary" : score_secondary
+        "score_secondary" : score_secondary,
+        "media_video_path" : video_output_path
     }
 
     return _result_object
