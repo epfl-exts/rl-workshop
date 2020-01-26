@@ -1,20 +1,16 @@
-import numpy as np
-
 import os.path
-import torch
-import tempfile
+
 import numpy as np
+import torch
 import tqdm
 
-from .agents.dqn import DQNAgent, DenseQNetworkFactory
-from .env.env import DeliveryDrones, WindowedGridView
-from .helpers.rl_helpers import set_seed
-
+from env.env import DeliveryDrones, WindowedGridView
+from helpers.rl_helpers import set_seed
 
 class DroneRacerEvaluator:
   def __init__(self, answer_folder_path=".", round=1):
     """
-    `round` : Holds the round for which the evaluation is being done. 
+    `round` : Holds the round for which the evaluation is being done.
     can be 1, 2...upto the number of rounds the challenge has.
     Different rounds will mostly have different ground truth files.
     """
@@ -79,7 +75,7 @@ class DroneRacerEvaluator:
     submission_file_path = client_payload["submission_file_path"]
     aicrowd_submission_id = client_payload["aicrowd_submission_id"]
     aicrowd_participant_uid = client_payload["aicrowd_participant_id"]
-    
+
 
     ################################################
     ################################################
@@ -99,7 +95,7 @@ class DroneRacerEvaluator:
         # Run Episode
         ################################################
         episode_scores = np.zeros(len(self.participating_agents.keys()))
-        
+
         ################################################
         ################################################
         # Env Instantiation
@@ -141,9 +137,9 @@ class DroneRacerEvaluator:
 
                 ################################################
                 ################################################
-                # Gather observation 
+                # Gather observation
                 ################################################
-                state_agent = state[_idx] 
+                state_agent = state[_idx]
 
                 ################################################
                 ################################################
@@ -158,7 +154,7 @@ class DroneRacerEvaluator:
                 # Collect frames for the first episode to generate video
                 ################################################
                 if _episode_idx == 0:
-                    # Record videos with env.render 
+                    # Record videos with env.render
                     # Do it in a tempfile
                     # Compile frames into a video (from flatland)
                     pass
@@ -167,14 +163,14 @@ class DroneRacerEvaluator:
             state, rewards, done, info = env.step(_action_dictionary)
 
             # Gather rewards for all agents (inside episode_score)
-            _step_score = np.array(list(rewards.values())) # Check with florian about ordering 
+            _step_score = np.array(list(rewards.values())) # Check with florian about ordering
 
             episode_scores += _step_score
 
         # Store the current episode scores
         self.overall_scores.append(episode_scores)
 
-        
+
     # Aggregate all scores into an overall score
     # TODO : Add aggregation function (lets start with simple mean + std)
 
@@ -208,7 +204,7 @@ if __name__ == "__main__":
     _client_payload["submission_file_path"] = "baseline_models/random-agent-3.pt"
     _client_payload["aicrowd_submission_id"] = 1123
     _client_payload["aicrowd_participant_id"] = 1234
-    
+
     # Instaiate a dummy context
     _context = {}
     # Instantiate an evaluator
