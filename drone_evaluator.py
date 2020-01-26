@@ -6,6 +6,10 @@ import tqdm
 
 from env.env import DeliveryDrones, WindowedGridView
 from rl_helpers.rl_helpers import set_seed
+from PIL import Image
+import tempfile
+import shutil
+import aicrowd_helpers
 
 class DroneRacerEvaluator:
   def __init__(self, answer_folder_path=".", round=1):
@@ -34,6 +38,8 @@ class DroneRacerEvaluator:
         "baseline-8" : "baseline_models/random-agent-3.pt",
         "baseline-9" : "baseline_models/random-agent-3.pt",
     }
+
+    self.video_directory_path = tempfile.mkdtemp()
 
     ################################################
     ################################################
@@ -76,6 +82,8 @@ class DroneRacerEvaluator:
     aicrowd_submission_id = client_payload["aicrowd_submission_id"]
     aicrowd_participant_uid = client_payload["aicrowd_participant_id"]
 
+    self.video_directory_path = tempfile.mkdtemp()
+    print("Video Directory Path : ", self.video_directory_path)
 
     ################################################
     ################################################
@@ -100,7 +108,7 @@ class DroneRacerEvaluator:
         ################################################
         # Env Instantiation
         ################################################
-        env_params = {
+        env_params = { # Updates to the default params have to be added after this instantiation
             'charge': 20,
             'charge_reward': -0.1,
             'crash_reward': -1,
@@ -108,7 +116,7 @@ class DroneRacerEvaluator:
             'discharge': 10,
             'drone_density': 0.05,
             'dropzones_factor': 2,
-            'n_drones': 10,
+            'n_drones': 3,
             'packets_factor': 3,
             'pickup_reward': 0,
             'rgb_render_rescale': 1.0,
@@ -154,10 +162,13 @@ class DroneRacerEvaluator:
                 # Collect frames for the first episode to generate video
                 ################################################
                 if _episode_idx == 0:
-                    # Record videos with env.render
-                    # Do it in a tempfile
-                    # Compile frames into a video (from flatland)
-                    pass
+                    if _step < 60:
+                        # Use only the first 60 frames for video generation
+                        # Record videos with env.render
+                        # Do it in a tempfile
+                        # Compile frames into a video (from flatland)
+                        _step_frame_im = Image.fromarray(env.render(mode='rgb_array'))
+                        _step_frame_im.save("{}/{}.jpg".format(self.video_directory_path, str(_step).zfill(4)))
 
             # Perform action (on all agents)
             state, rewards, done, info = env.step(_action_dictionary)
@@ -169,7 +180,14 @@ class DroneRacerEvaluator:
 
         # Store the current episode scores
         self.overall_scores.append(episode_scores)
-
+    print("Video directory : ", self.video_directory_path)
+    # Post Process Video
+    print("Generating Video from thumbnails...")
+    video_output_path, video_thumb_output_path = \
+        aicrowd_helpers.generate_movie_from_frames(
+            self.video_directory_path
+        )
+    print("Videos : ", video_output_path, video_thumb_output_path)
 
     # Aggregate all scores into an overall score
     # TODO : Add aggregation function (lets start with simple mean + std)
@@ -190,7 +208,8 @@ class DroneRacerEvaluator:
 
     _result_object = {
         "score" : score,
-        "score_secondary" : score_secondary
+        "score_secondary" : score_secondary,
+        "media_video_path" : video_output_path
     }
 
     return _result_object
