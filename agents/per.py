@@ -72,11 +72,13 @@ class PERAgent(DQNAgent):
             action = LongTensor(action)
             reward = Tensor(reward)
             done = Tensor(done)
+            weights = Tensor(weights)
 
             if torch.cuda.is_available():
                 action = action.cuda()
                 reward = reward.cuda()
                 done = done.cuda()
+                weights = weights.cuda()
 
             # Q-value for current state given current action
             q_values = self.qnetwork(state)
@@ -97,7 +99,7 @@ class PERAgent(DQNAgent):
                 self.priorities[idx] = prio.item()
 
             # Optimize Q-network as usual
-            loss = (loss * Tensor(weights)).pow(2).mean()
+            loss = (loss * weights).pow(2).mean()
             self.optimizer.zero_grad()
             loss.backward()
             self.optimizer.step()
