@@ -6,9 +6,11 @@ Talk @ Applied Machine Learning days 2020
 
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/pacm/rl-workshop) [![Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/pacm/rl-workshop/master)
 
+Gitter channel: https://gitter.im/rl-workshop/community
+
 **Part 1 – Introduction to RL / environment**
 
-* 09:00 Intro to RL
+* 09:00 Intro to RL [slides](https://docs.google.com/presentation/d/10yaaF3BWMqUb-xMZZX3tJLASTG9Hxgdst0qKPVhd2DI/edit?usp=sharing)
 * 10:00 Intro to the `DroneDelivery` environment - [notebook](https://colab.research.google.com/github/pacm/rl-workshop/blob/abdce93c5d9bc401b42251da36d3692fda00521d/01%20Intro%20to%20environment.ipynb) / [slides](https://docs.google.com/presentation/d/10uOOdxPDKaavjwHTqF1WhBjKfOeu6-cTnJ_Yrki9UvE/edit?usp=sharing)
 * *10:30 Coffee break*
 * 11:00 Intro to Q-learning and DQN - [notebook](https://colab.research.google.com/github/pacm/rl-workshop/blob/abdce93c5d9bc401b42251da36d3692fda00521d/02%20Intro%20to%20Q-learning%20and%20DQN.ipynb)

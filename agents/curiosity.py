@@ -31,52 +31,6 @@ class OneHot(nn.Module):
         return x_one_hot.to(dtype=self.dtype)
 
 
-class QNetwork(nn.Module):
-    def __init__(self, env, conv_sizes, fc_sizes):
-        # Initialize module
-        super().__init__()
-
-        # Get input size
-        grisize, grisize, depth = env.observation_space.shape
-
-        # Create convolutional layers
-        self.conv = nn.Sequential()
-        in_channels = depth
-        for i, (out_channels, kernel_size, stride, padding) in enumerate(conv_sizes):
-            # Create layer
-            layer = nn.Conv2d(in_channels, out_channels, kernel_size=kernel_size, stride=stride, padding=padding)
-
-            # Add layer + activation
-            self.conv.add_module(f'conv2d_{i + 1}', layer)
-            self.conv.add_module(f'ReLU_{i + 1}', nn.ReLU())
-
-            in_channels = out_channels
-
-        # Add classification layer
-        self.fc = nn.Sequential()
-        self.fc.add_module('flatten', nn.Flatten())
-
-        conv_output = self.conv(torch.ones([1, depth, grisize, grisize]))
-        batch_size, flatsize = self.fc(conv_output).shape
-        fc_sizes = fc_sizes + [env.action_space.n]
-        for i, hidden_size in enumerate(fc_sizes):
-            # Create layer
-            in_features = flatsize if i == 0 else fc_sizes[i - 1]
-            out_features = fc_sizes[i]
-            layer = nn.Linear(in_features, out_features)
-
-            # Add layer + activation
-            if i > 0:
-                self.fc.add_module(f'ReLU_{i + 1}', nn.ReLU())
-            self.fc.add_module(f'fc_{i + 1}', layer)
-
-        self.network = nn.Sequential(self.conv, self.fc)
-
-    def forward(self, states: torch.Tensor):
-        states = states.permute(0, 3, 1, 2)
-        return self.network(states)
-
-
 class ConvNet(nn.Module):
 
     def __init__(self, obs_shape: Tuple[int, int, int], conv_sizes: List[Tuple[int, int, int, int]]) -> None:
@@ -115,18 +69,18 @@ class DenseNet(nn.Module):
 
 class IntrinsicCuriosityModule(nn.Module):
 
-    def __init__(self, obs_shape, num_actions) -> None:
+    def __init__(self, obs_shape, num_actions, embed_convs: List[Tuple[int, int, int, int]] = None,
+                 forward_hidden: List[int] = None, inverse_hidden: List[int] = None) -> None:
         super().__init__()
+        embed_convs = embed_convs or [(32, 3, 2, 1), (32, 3, 1, 1), (32, 3, 1, 1), (32, 3, 1, 1)]
+        forward_hidden = forward_hidden or [256]
+        inverse_hidden = inverse_hidden or [256]
         self.num_actions = num_actions
         self.action_one_hot = OneHot(num_actions)
-        self.state_embed = ConvNet(obs_shape, [
-            (32, 3, 1, 1),
-            (32, 3, 1, 1),
-            (32, 3, 1, 1),
-            (32, 3, 1, 1),
-        ])
-        self.forward_model = DenseNet(num_actions + self.state_embed.out_features, [256], self.state_embed.out_features)
-        self.inverse_model = DenseNet(2 * self.state_embed.out_features, [256], num_actions)
+        self.state_embed = ConvNet(obs_shape, embed_convs)
+        self.forward_model = DenseNet(num_actions + self.state_embed.out_features, forward_hidden,
+                                      self.state_embed.out_features)
+        self.inverse_model = DenseNet(2 * self.state_embed.out_features, inverse_hidden, num_actions)
 
     def forward(self, state, action, next_state):
         a_t_one_hot = self.action_one_hot(action)
@@ -140,7 +94,9 @@ class IntrinsicCuriosityModule(nn.Module):
 class CuriosityDQNAgent(DQNAgent):
 
     def __init__(self, env, dqn_factory, gamma, epsilon_start, epsilon_decay, epsilon_end, memory_size, batch_size,
-                 target_update_interval, eta=0.01, beta=0.2, lmbda=0.1, lr=1e-3, logger: Logger = None):
+                 target_update_interval, eta=0.01, beta=0.2, lmbda=0.1, lr=1e-3,
+                 icm_embed_convs: List[Tuple[int, int, int, int]] = None, icm_forward_hidden: List[int] = None,
+                 icm_inverse_hidden: List[int] = None, logger: Logger = None):
         # Initialize agent
         super().__init__(env=env, dqn_factory=dqn_factory, gamma=gamma, epsilon_start=epsilon_start,
                          epsilon_decay=epsilon_decay, epsilon_end=epsilon_end, memory_size=memory_size,
@@ -155,11 +111,17 @@ class CuriosityDQNAgent(DQNAgent):
         self.lmbda = lmbda
         self.lr = lr
 
+        self.icm_embed_convs = icm_embed_convs
+        self.icm_forward_hidden = icm_forward_hidden
+        self.icm_inverse_hidden = icm_inverse_hidden
+
     def create_qnetwork(self):
         # Create network
         network, _ = self.network_fn.create_qnetwork(target_qnetwork=False)
 
-        self.icm = IntrinsicCuriosityModule(self.env.observation_space.shape, self.env.action_space.n)
+        self.icm = IntrinsicCuriosityModule(self.env.observation_space.shape, self.env.action_space.n,
+                                            embed_convs=self.icm_embed_convs, forward_hidden=self.icm_forward_hidden,
+                                            inverse_hidden=self.icm_inverse_hidden)
 
         model = nn.ModuleList([network, self.icm])
 
