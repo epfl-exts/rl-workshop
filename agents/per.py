@@ -38,10 +38,10 @@ class PERAgent(DQNAgent):
         # End of episode
         if done:
             self.num_episode += 1  # Episode counter
-            # self.logger.log_dict(self.total_steps, {
-            #     'episode_reward': self.episode_reward,
-            #     'memory_size': len(self.memory),
-            # })
+            self.logger.log_dict(self.total_steps, {
+                'episode_reward': self.episode_reward,
+                'memory_size': len(self.memory),
+            })
             self.epsilons.append(self.epsilon)  # Log epsilon value
 
             # Epislon decay
@@ -104,10 +104,10 @@ class PERAgent(DQNAgent):
             loss.backward()
             self.optimizer.step()
 
-            # self.logger.log_dict(self.total_steps, {
-            #     'dqn/loss': loss.data.cpu().numpy(),
-            #     'dqn/reward': reward.mean().data.cpu().numpy(),
-            # })
+            self.logger.log_dict(self.total_steps, {
+                'dqn/loss': loss.data.cpu().numpy(),
+                'dqn/reward': reward.mean().data.cpu().numpy(),
+            })
 
     def inspect_priorities(self, top_n=10, max_col=80):
         fig, ax = plt.subplots(nrows=1, ncols=1, figsize=(12, 4))
