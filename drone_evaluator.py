@@ -1,23 +1,24 @@
 import numpy as np
 
+import os.path
 import torch
 import tempfile
 import numpy as np
 import tqdm
 
-from agents.dqn import DQNAgent, DenseQNetworkFactory
-from env.env import DeliveryDrones, WindowedGridView
-from helpers.rl_helpers import set_seed
+from .agents.dqn import DQNAgent, DenseQNetworkFactory
+from .env.env import DeliveryDrones, WindowedGridView
+from .helpers.rl_helpers import set_seed
 
 
 class DroneRacerEvaluator:
-  def __init__(self, answer_file_path=False, round=1):
+  def __init__(self, answer_folder_path=".", round=1):
     """
     `round` : Holds the round for which the evaluation is being done. 
     can be 1, 2...upto the number of rounds the challenge has.
     Different rounds will mostly have different ground truth files.
     """
-    self.answer_file_path = answer_file_path
+    self.answer_folder_path = answer_folder_path
     self.round = round
 
     ################################################
@@ -44,7 +45,8 @@ class DroneRacerEvaluator:
     ################################################
     self.loaded_agent_models = {}
     for _item in self.participating_agents.keys():
-        self.loaded_agent_models[_item] = torch.load(self.participating_agents[_item])
+        agent_path = os.path.join(answer_folder_path, self.participating_agents[_item])
+        self.loaded_agent_models[_item] = torch.load(agent_path)
     # Baseline Models loaded !! Yayy !!
 
 
@@ -200,7 +202,7 @@ if __name__ == "__main__":
     # Lets assume the the ground_truth is a CSV file
     # and is present at data/ground_truth.csv
     # and a sample submission is present at data/sample_submission.csv
-    answer_file_path = False
+    answer_file_path = "."
     _client_payload = {}
     _client_payload["submission_file_path"] = "baseline_models/random-agent-3.pt"
     _client_payload["aicrowd_submission_id"] = 1123
