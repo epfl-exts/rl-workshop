@@ -38,10 +38,10 @@ class PERAgent(DQNAgent):
         # End of episode
         if done:
             self.num_episode += 1  # Episode counter
-            self.logger.log_dict(self.total_steps, {
-                'episode_reward': self.episode_reward,
-                'memory_size': len(self.memory),
-            })
+            # self.logger.log_dict(self.total_steps, {
+            #     'episode_reward': self.episode_reward,
+            #     'memory_size': len(self.memory),
+            # })
             self.epsilons.append(self.epsilon)  # Log epsilon value
 
             # Epislon decay
@@ -54,7 +54,6 @@ class PERAgent(DQNAgent):
 
         # Train when we have enough experiences in the replay memory
         if len(self.memory) > self.batch_size:
-            # TODO make sample method
             prios = np.array(self.priorities)
             probs = prios ** self.alpha
             probs /= probs.sum()
@@ -90,7 +89,7 @@ class PERAgent(DQNAgent):
             td_target = reward + self.gamma * next_q_value * (1 - done)
 
             # Optimize quadratic loss
-            loss = (q_value - td_target.detach()).pow(2)
+            loss = (q_value - td_target.detach()).abs()
 
             # We use the individual losses as priorities
             priorities = loss + 1e-5
@@ -98,15 +97,15 @@ class PERAgent(DQNAgent):
                 self.priorities[idx] = prio.item()
 
             # Optimize Q-network as usual
-            loss = loss.mean()
+            loss = (loss * Tensor(weights)).pow(2).mean()
             self.optimizer.zero_grad()
             loss.backward()
             self.optimizer.step()
 
-            self.logger.log_dict(self.total_steps, {
-                'dqn/loss': loss.data.cpu().numpy(),
-                'dqn/reward': reward.mean().data.cpu().numpy(),
-            })
+            # self.logger.log_dict(self.total_steps, {
+            #     'dqn/loss': loss.data.cpu().numpy(),
+            #     'dqn/reward': reward.mean().data.cpu().numpy(),
+            # })
 
     def inspect_priorities(self, top_n=10, max_col=80):
         fig, ax = plt.subplots(nrows=1, ncols=1, figsize=(12, 4))
