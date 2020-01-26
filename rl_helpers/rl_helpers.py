@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 import torch
 from tqdm.notebook import tqdm
-from moviepy.editor import ImageClip, concatenate_videoclips
+#from moviepy.editor import ImageClip, concatenate_videoclips
 from base64 import b64encode
 
 

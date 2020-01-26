@@ -1,0 +1,14 @@
+{
+    "evaluator_name" : "drone_racer_evaluator",
+    "evaluator_class" : "DroneRacerEvaluator",
+    "challenge_client_name" : "drone_rl_evaluator_amld_2020",
+    "challenge_grader_id" : "AIcrowd",
+    "evaluation_pipeline_version" : "1.0",
+    "authors" : [
+      {
+        "name" : "Sharada Mohanty",
+        "email" : "mohanty@aicrowd.com"
+      }
+    ],
+    "version": "0.1"
+  }

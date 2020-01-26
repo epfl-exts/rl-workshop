@@ -10,7 +10,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torch import Tensor, LongTensor
 
-from agents.logging import Logger, NoLogger
+from .logging import Logger, NoLogger
 
 
 class DenseQNetwork(nn.Module):

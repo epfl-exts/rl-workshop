@@ -6,7 +6,7 @@ import torch
 import torch.nn.functional as F
 from torch import nn, Tensor, optim
 
-from agents.logging import Logger
+from .logging import Logger
 from .dqn import DQNAgent
 
 
