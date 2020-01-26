@@ -115,8 +115,14 @@ def generate_movie_from_frames(frames_folder):
     print("Generating Thumbnail...")
     frames_path = os.path.join(frames_folder, "%04d.jpg")
     thumb_output_path = os.path.join(frames_folder, "out_thumb.mp4")
+
+    if is_grading():
+        ffmpeg_path = "/home/ubuntu/miniconda3/envs/aicrowd_job_factory/bin/ffmpeg"
+    else:
+        ffmpeg_path = "ffmpeg"
     return_code, output, output_err = make_subprocess_call(
-        "ffmpeg -r 7 -start_number 0 -i " +
+        ffmpeg_path +
+        " -r 7 -start_number 0 -i " +
         frames_path +
         " -c:v libx264 -vf fps=7 -pix_fmt yuv420p -s 320x320 " +
         thumb_output_path
@@ -129,7 +135,8 @@ def generate_movie_from_frames(frames_folder):
     frames_path = os.path.join(frames_folder, "%04d.jpg")
     output_path = os.path.join(frames_folder, "out.mp4")
     return_code, output, output_err = make_subprocess_call(
-        "ffmpeg -r 7 -start_number 0 -i " +
+        ffmpeg_path +
+        " -r 7 -start_number 0 -i " +
         frames_path +
         " -c:v libx264 -vf fps=7 -pix_fmt yuv420p -s 600x600 " +
         output_path
