@@ -5,7 +5,7 @@ import torch
 import tqdm
 
 from env.env import DeliveryDrones, WindowedGridView
-from helpers.rl_helpers import set_seed
+from rl_helpers.rl_helpers import set_seed
 
 class DroneRacerEvaluator:
   def __init__(self, answer_folder_path=".", round=1):

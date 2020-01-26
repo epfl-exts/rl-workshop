@@ -7,7 +7,7 @@ import tqdm
 
 from agents.dqn import DQNAgent, DenseQNetworkFactory
 from env.env import DeliveryDrones, WindowedGridView
-from helpers.rl_helpers import set_seed
+from rl_helpers.rl_helpers import set_seed
 
 
 
