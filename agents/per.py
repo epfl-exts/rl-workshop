@@ -54,7 +54,6 @@ class PERAgent(DQNAgent):
 
         # Train when we have enough experiences in the replay memory
         if len(self.memory) > self.batch_size:
-            # TODO make sample method
             prios = np.array(self.priorities)
             probs = prios ** self.alpha
             probs /= probs.sum()
@@ -73,11 +72,13 @@ class PERAgent(DQNAgent):
             action = LongTensor(action)
             reward = Tensor(reward)
             done = Tensor(done)
+            weights = Tensor(weights)
 
             if torch.cuda.is_available():
                 action = action.cuda()
                 reward = reward.cuda()
                 done = done.cuda()
+                weights = weights.cuda()
 
             # Q-value for current state given current action
             q_values = self.qnetwork(state)
@@ -90,7 +91,7 @@ class PERAgent(DQNAgent):
             td_target = reward + self.gamma * next_q_value * (1 - done)
 
             # Optimize quadratic loss
-            loss = (q_value - td_target.detach()).pow(2)
+            loss = (q_value - td_target.detach()).abs()
 
             # We use the individual losses as priorities
             priorities = loss + 1e-5
@@ -98,7 +99,7 @@ class PERAgent(DQNAgent):
                 self.priorities[idx] = prio.item()
 
             # Optimize Q-network as usual
-            loss = loss.mean()
+            loss = (loss * weights).pow(2).mean()
             self.optimizer.zero_grad()
             loss.backward()
             self.optimizer.step()
