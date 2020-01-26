@@ -6,7 +6,6 @@ import numpy as np
 import pandas as pd
 import torch
 from tqdm.notebook import tqdm
-#from moviepy.editor import ImageClip, concatenate_videoclips
 from base64 import b64encode
 
 
@@ -169,6 +168,8 @@ def plot_rolling_rewards(rewards_log, window=None, hline=None, events={'delivery
         plt.show()
         
 def render_video(env, agents, video_path, n_steps=60, fps=1, seed=None):
+    from moviepy.editor import ImageClip, concatenate_videoclips
+
     # Initialization
     if seed is not None:
         set_seed(env, seed=seed)
