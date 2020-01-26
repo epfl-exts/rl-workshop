@@ -190,7 +190,7 @@ class DeliveryDrones(Env):
         # Side panel
         background_color = (20, 200, 200)
         self.panel = Image.new('RGBA', (120, self.empty_frame.shape[1]), color=background_color)
-        annotations_draw = ImageDraw.Draw(self.panel, mode='RGBA')
+        draw_handle = ImageDraw.Draw(self.panel, mode='RGBA')
         font = ImageFont.truetype(os.path.join(dir_path, 'Inconsolata-Bold.ttf'), 16)
 
         for i, drone in enumerate(self.drones):
@@ -199,12 +199,20 @@ class DeliveryDrones(Env):
             sprite_x = self.render_padding
             sprite_y = i * self.tiles_size + (i+1) * self.render_padding
             self.panel.paste(drone_sprite, (sprite_x, sprite_y), drone_sprite)
+            
+            player_name = 'Player {:>2}'.format(drone.index)
+            if "player_name_mappings" in self.env_params.keys():
+                """
+                    Optional Setting for rendering videos on evaluator
+                    -- Non-breaking change
+                """
+                player_name = self.env_params["player_name_mappings"][drone.index]
 
-            # Print text
+            # # Print text
             text_x = sprite_x + self.tiles_size + self.render_padding
             text_y = sprite_y - 1
             text_color = (0, 0, 0)
-            annotations_draw.text((text_x, text_y), 'Player {:>2}'.format(drone.index), fill=text_color, font=font)
+            draw_handle.text((text_x, text_y), player_name, fill=text_color, font=font)
         
     def step(self, actions):
         # By default, drones get a reward of zero

@@ -70,6 +70,13 @@ class DroneRacerEvaluator:
     return agent_names[agent_id]
 
 
+  def get_agent_name_mapping(self):
+      agent_names = sorted(self.participating_agents.keys())
+      _agent_name_mapping = {}
+      for _agent_name in agent_names:
+          _agent_id = self.agent_id(_agent_name)
+          _agent_name_mapping[_agent_id] = _agent_name
+      return _agent_name_mapping
 
   def _evaluate(self, client_payload, _context={}):
     """
@@ -93,7 +100,7 @@ class DroneRacerEvaluator:
 
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device('cpu')
     model = torch.load(submission_file_path, map_location=device)
-    self.participating_agents["PARTICIPANT_MODEL"] = model
+    self.participating_agents["YOU"] = model
 
     self.overall_scores = []
 
@@ -128,6 +135,9 @@ class DroneRacerEvaluator:
 
         env = WindowedGridView(DeliveryDrones(env_params), radius=3)
         set_seed(env, episode_seed) # Seed
+
+        agent_name_mappings = self.get_agent_name_mapping()
+        env.env_params["player_name_mappings"] = agent_name_mappings
 
         # Gather First Obeservation (state)
         state = env.reset()
@@ -197,7 +207,7 @@ class DroneRacerEvaluator:
     _score = self.overall_scores.mean(axis=0)
     _score_secondary = self.overall_scores.std(axis=0)
 
-    _idx_of_submitted_agent = self.agent_id("PARTICIPANT_MODEL")
+    _idx_of_submitted_agent = self.agent_id("YOU")
     score = _score[_idx_of_submitted_agent]
     score_secondary = _score_secondary[_idx_of_submitted_agent]
 
