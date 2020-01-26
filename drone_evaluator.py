@@ -108,7 +108,7 @@ class DroneRacerEvaluator:
         ################################################
         # Env Instantiation
         ################################################
-        env_params = {
+        env_params = { # Updates to the default params have to be added after this instantiation
             'charge': 20,
             'charge_reward': -0.1,
             'crash_reward': -1,
@@ -116,7 +116,7 @@ class DroneRacerEvaluator:
             'discharge': 10,
             'drone_density': 0.05,
             'dropzones_factor': 2,
-            'n_drones': 10,
+            'n_drones': 3,
             'packets_factor': 3,
             'pickup_reward': 0,
             'rgb_render_rescale': 1.0,
