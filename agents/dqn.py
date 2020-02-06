@@ -191,6 +191,16 @@ class DQNAgent():
         self.is_greedy = False  # Does the agent behave greedily?
         self.logger = logger or NoLogger()
 
+    def get_hyperparameters(self):
+        hyperparams = {
+            'gamma': self.gamma,
+            'batch_size': self.batch_size,
+            'conv-network': self.dqn_factory.conv_layers,
+            'dense-network': self.dqn_factory.dense_layers
+        }
+
+        return hyperparams
+
     def reset(self):
         # Create networks with episode counter to know when to update them
         self.qnetwork, self.optimizer = self.dqn_factory.create_qnetwork(target_qnetwork=False)

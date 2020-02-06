@@ -18,7 +18,7 @@ def set_seed(env, seed):
     random.seed(seed)  # seed for Python random library
 
 
-class MultiAgentTrainer():
+class MultiAgentTrainer:
     """A class to train agents in a multi-agent environment"""
 
     def __init__(self, env, agents, reset_agents, seed=None):
@@ -44,7 +44,7 @@ class MultiAgentTrainer():
     def train(self, n_steps):
         # Reset env. and get initial observations
         states = self.env.reset()
-        
+
         # Set greedy flag
         for key, agent in self.agents.items():
             agent.is_greedy = False
@@ -71,14 +71,15 @@ def test_agents(env, agents, n_steps, seed=None):
         set_seed(env, seed=seed)
     states = env.reset()
     rewards_log = defaultdict(list)
-    
+
     # Set greedy flag
     for key, agent in agents.items():
         agent.is_greedy = True
 
     for _ in tqdm(range(n_steps), 'Testing agents'):
         # Select actions based on current states
-        actions = {key: agent.act(states[key]) for key, agent in agents.items()}
+        with torch.no_grad():
+            actions = {key: agent.act(states[key]) for key, agent in agents.items()}
 
         # Perform the selected action
         next_states, rewards, dones, _ = env.step(actions)
@@ -106,15 +107,15 @@ def plot_cumulative_rewards(rewards_log, events={'delivery': [1], 'crash': [-1]}
             drone_name = 'Drone {}'.format(key)
         else:
             drone_name = drones_labels[key]
-        
+
         # Reward stats
         label = '{} - reward: {:.3f}±{:.3f}'.format(drone_name, np.mean(rewards), np.std(rewards))
-        
+
         # Events stats
         for event, rewards_values in events.items():
             event_mask = np.isin(rewards, rewards_values)
-            label += ' ' + '{}: {:.1f}% ({})'.format(event, 100*np.mean(event_mask), np.sum(event_mask))
-                
+            label += ' ' + '{}: {:.1f}% ({})'.format(event, 100 * np.mean(event_mask), np.sum(event_mask))
+
         # Plot cumulative sum with stats
         cumsum = np.cumsum(rewards)
         idxs = range(1, len(cumsum) + 1)
@@ -141,12 +142,12 @@ def plot_rolling_rewards(rewards_log, window=None, hline=None, events={'delivery
             drone_name = 'Drone {}'.format(key)
         else:
             drone_name = drones_labels[key]
-        
+
         # Events stats
         label = '{}'.format(drone_name) + ' -' if len(events) > 0 else ''
         for event, rewards_values in events.items():
             event_mask = np.isin(rewards, rewards_values)
-            label += ' ' + '{}: {:.1f}% ({})'.format(event, 100*np.mean(event_mask), np.sum(event_mask))
+            label += ' ' + '{}: {:.1f}% ({})'.format(event, 100 * np.mean(event_mask), np.sum(event_mask))
 
         # Set default for window size
         window = int(len(rewards) / 10) if window is None else window
@@ -166,7 +167,8 @@ def plot_rolling_rewards(rewards_log, window=None, hline=None, events={'delivery
 
     if create_figure:
         plt.show()
-        
+
+
 def render_video(env, agents, video_path, n_steps=60, fps=1, seed=None):
     from moviepy.editor import ImageClip, concatenate_videoclips
 
@@ -174,7 +176,7 @@ def render_video(env, agents, video_path, n_steps=60, fps=1, seed=None):
     if seed is not None:
         set_seed(env, seed=seed)
     states = env.reset()
-    
+
     # Set greedy flag
     for key, agent in agents.items():
         agent.is_greedy = True
@@ -188,7 +190,7 @@ def render_video(env, agents, video_path, n_steps=60, fps=1, seed=None):
         # Perform the selected action
         next_states, rewards, dones, _ = env.step(actions)
         states = next_states
-        
+
         # Save frame
         frames.append(env.render(mode='rgb_array'))
 
@@ -196,12 +198,13 @@ def render_video(env, agents, video_path, n_steps=60, fps=1, seed=None):
     clips = [ImageClip(frame).set_duration(fps) for frame in frames]
     concat_clip = concatenate_videoclips(clips, method="compose")
     concat_clip.write_videofile(video_path, fps=24)
-    
+
+
 class ColabVideo():
     def __init__(self, path):
         # Source: https://stackoverflow.com/a/57378660/3890306
         self.video_src = 'data:video/mp4;base64,' + b64encode(open(path, 'rb').read()).decode()
-        
+
     def _repr_html_(self):
         return """
         <video width=400 controls>
