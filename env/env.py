@@ -324,6 +324,7 @@ class DeliveryDrones(Env):
             air_respawns, exclude_positions=skyscrapers_positions))
 
         # Episode ends when drone respawns
+        # FIXME should return also for drones which haven't moved at this timestep
         dones = {index: False for index in actions.keys()}
         for drone in air_respawns:
             dones[drone.index] = True

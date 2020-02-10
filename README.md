@@ -1,28 +1,14 @@
 
-Climbing the Ladder: Reinforcement Learning in a Competitive Setting
+DroneRL Workshop
 ---
-
-Talk @ Applied Machine Learning days 2020
 
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/pacm/rl-workshop) [![Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/pacm/rl-workshop/master)
 
-Gitter channel: https://gitter.im/rl-workshop/community
+* What is reinforcement learning? [slides](https://docs.google.com/presentation/d/1juMEUcWgdg3IHfk33HvWxjVuwnNh4U-KurhBFtGTl6k/edit?usp=sharing) 
 
-**Part 1 – Introduction to RL / environment**
+* The DroneDeliveries environment [slides](https://docs.google.com/presentation/d/1k1wuReVWI04bYMPAQKyrPiajEZ2eVH9n4KdMIcy_Ntg/edit?usp=sharing) / [notebook](https://colab.research.google.com/drive/1gtZ1zZD1O1aT6v577Y3z9HfiXFo5u1zD)
 
-* 09:00 Intro to RL [slides](https://docs.google.com/presentation/d/10yaaF3BWMqUb-xMZZX3tJLASTG9Hxgdst0qKPVhd2DI/edit?usp=sharing)
-* 10:00 Intro to the `DroneDelivery` environment - [notebook](https://colab.research.google.com/github/pacm/rl-workshop/blob/abdce93c5d9bc401b42251da36d3692fda00521d/01%20Intro%20to%20environment.ipynb) / [slides](https://docs.google.com/presentation/d/10uOOdxPDKaavjwHTqF1WhBjKfOeu6-cTnJ_Yrki9UvE/edit?usp=sharing)
-* *10:30 Coffee break*
-* 11:00 Intro to Q-learning and DQN - [notebook](https://colab.research.google.com/github/pacm/rl-workshop/blob/abdce93c5d9bc401b42251da36d3692fda00521d/02%20Intro%20to%20Q-learning%20and%20DQN.ipynb)
-* *12:30 Lunch break*
-
-**Part 2 – Modern RL methods**
-
-* 13:30 Prioritized Experience Replay
-* *15:00 Coffee break*
-* 15:30 Curiosity
-* *17:00 End of workshop*
-
+* Getting started with RL [slides](https://docs.google.com/presentation/d/1aWn3qE9_sJFMJeTyB6H4sPTQaB3R-2zz7DnWOXLiO9I/edit?usp=sharing)
 
 **Troubleshooting**
 
